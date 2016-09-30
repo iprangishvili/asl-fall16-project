@@ -3,94 +3,68 @@ import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionHandler;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+
+import com.sun.security.ntlm.Client;
 
 
 public class Middleware implements Runnable{
 	
 	private AsyncClient asyncClient;
-	private List<ClientRequestHandler> queue = new LinkedList<ClientRequestHandler>();
+	private ThreadPoolExecutor executorPool;
 
 	/**
 	 * TODO: add parameters
 	 * @throws IOException 
 	 */
-	public Middleware(AsyncClient asyncClient) throws IOException{
+	public Middleware() throws IOException{
+
+		int maxThreadSize = 50;
+		int queueSize = 20;
+		
+		//Get the ThreadFactory implementation to use
+		ThreadFactory threadFactory = Executors.defaultThreadFactory();
+		RejectedExecutionHandler rejectExecution = new ThreadPoolExecutor.DiscardPolicy();
+		
+        //creating the ThreadPoolExecutor
+        this.executorPool = new ThreadPoolExecutor(maxThreadSize, maxThreadSize, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<Runnable>(queueSize), threadFactory, rejectExecution);
+        //start the monitoring thread
+
+		
 		// initiate client connection to memcached server
-		this.asyncClient = asyncClient;
+		this.asyncClient = new AsyncClient();
 		new Thread(asyncClient).start();
-	}
-	
-	public void parseRequest(String input){
-		System.out.println("parse request");
-		String action;
-		String splitData[] = input.split(" ");
-		if(splitData.length > 0){
-			action = splitData[0];
-			if(action.equals("get")){
-				if(splitData.length == 2){
-					String get_hashKey = splitData[1];
-					// TODO: process hash key determine the server; Consisten Hashing
-					System.out.println("Action: Get; Key: " + get_hashKey);
-				}
-			}
-			else if(action.equals("set")){
-				System.out.println("Action: Set " + splitData.length);
-				if(splitData.length == 5){
-					String set_key = splitData[1];
-					int flag = Integer.parseInt(splitData[2]);
-					int exp_time = Integer.parseInt(splitData[3]);
-					String valueParse[] = splitData[4].split("\\r?\\n");
-					if(valueParse.length == 2){
-						int set_value_size = Integer.parseInt(valueParse[0]);
-						String set_value = valueParse[1];
-						System.out.println("parsed value: " + set_value);
-						System.out.println("parsed value: " + set_value_size);
-					}
-				}
-				// TODO: process hash key determine the server; Consistent Hashing
-			}
-		}
 	}
 	
 	public void processRequest(Server server, SocketChannel socket, byte[] input, int count) throws Exception{
 		//TODO: process hash key; consistent hashing;
+		// initial parsing for set/get
 		
-//		asyncClient.sendToMemCache(server, socket, input);
-		ClientRequestHandler clientRequestForward = new ClientRequestHandler(server, socket, ByteBuffer.wrap(input));
-		asyncClient.sendToMemCache(clientRequestForward);
+		ClientRequestHandler clientRequestForward = new ClientRequestHandler(server, socket, ByteBuffer.wrap(input), count);
+		String[] inputStr = new String(input).split(" ");
+		if(inputStr.length > 0){
+			if(inputStr[0].equals("get")){
+//				System.out.println("GET " + inputStr[1]);
+				this.executorPool.execute(new SyncClient(clientRequestForward));
+//				System.out.println("is get blocked ?");
+			}
+			else if(inputStr[0].equals("set")){
+//				System.out.println("set command: " + inputStr[1]);
+				asyncClient.sendToMemCache(clientRequestForward);
+//				System.out.println("is set blocked ?");
 
-//		synchronized(queue) {
-//			queue.add(new ClientRequestHandler(server, socket, ByteBuffer.wrap(input)));
-//			queue.notify();
-//		}
+			}
+		}
+		
 	}
 	
 	public void run(){
-//		ClientRequestHandler clientRequestForward;
-//		
-//		while(true) {
-//			// Wait for data to become available
-//			synchronized(queue) {
-//				while(queue.isEmpty()) {
-//					try {
-//						queue.wait();
-//					} catch (InterruptedException e) {
-//						e.printStackTrace();
-//					}
-//				}
-//				clientRequestForward = (ClientRequestHandler) queue.remove(0);
-//				// send to client
-//				try {
-//					asyncClient.sendToMemCache(clientRequestForward);
-//				} catch (IOException e) {
-//					// TODO Auto-generated catch block
-//					e.printStackTrace();
-//				}
-//			}
-//			
-//			
-//		}
-		
+
 		// TODO: thread pooling; waiting queue; mitigate sendToMemcache here
 		
 	}

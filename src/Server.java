@@ -100,10 +100,11 @@ public class Server  implements Runnable{
       }
       
       // send data to middleware for further processing
-      if(!clientInput.isEmpty()){
+//      if(!clientInput.isEmpty()){
 //		  System.out.println("Received Data: " + clientInput);
+    	  currentKey.interestOps(0);
 		  middleware.processRequest(this, sc, echoBuffer.array(), code);
-      }
+//      }
 
   }
   
@@ -112,49 +113,55 @@ public class Server  implements Runnable{
 	  
 		synchronized (this.pendingChanges) {
 //			// Indicate we want the interest ops set changed
-			this.pendingChanges.add(new SocketChangeRequestInfo(socket, SocketChangeRequestInfo.CHANGEOPS, SelectionKey.OP_WRITE));
 //
 //			// And queue the data we want written
 			synchronized (this.pendingData) {
+				this.pendingChanges.add(new SocketChangeRequestInfo(socket, SocketChangeRequestInfo.CHANGEOPS, SelectionKey.OP_WRITE));
+
 				List<ByteBuffer> queue = (List<ByteBuffer>) this.pendingData.get(socket);
 				if (queue == null) {
 					queue = new ArrayList<ByteBuffer>();
-					this.pendingData.put(socket, queue);
+					synchronized (queue) {
+						this.pendingData.put(socket, queue);
+
+					}
 				}
-				queue.add(ByteBuffer.wrap(data));
+				synchronized (queue) {
+					queue.add(ByteBuffer.wrap(data));
+					this.selector.wakeup();
+
+				}
 			}
 		}
-	  
-	  this.selector.wakeup();
-	  
+	  	  
 	}
   
 
   private void write(SelectionKey key) throws IOException {
-//	  System.out.println("Writing Data");
+//	  System.out.println("Writing Data to memaslap");
 		SocketChannel socketChannel = (SocketChannel) key.channel();
 
 		synchronized (this.pendingData) {
 			List<ByteBuffer> queue = (List<ByteBuffer>) this.pendingData.get(socketChannel);
-
-			// Write until there's not more data ...
-			while (!queue.isEmpty()) {
-				ByteBuffer buf = (ByteBuffer) queue.get(0);
-				socketChannel.write(buf);
-				if (buf.remaining() > 0) {
-					// ... or the socket's buffer fills up
-					break;
+			synchronized (queue) {
+				// Write until there's not more data ...
+				while (!queue.isEmpty()) {
+					ByteBuffer buf = (ByteBuffer) queue.get(0);
+					socketChannel.write(buf);
+					if (buf.remaining() > 0) {
+						// ... or the socket's buffer fills up
+						break;
+					}
+					queue.remove(0);
 				}
-				queue.remove(0);
-			}
 
-			if (queue.isEmpty()) {
-				// We wrote away all data, so we're no longer interested
-				// in writing on this socket. Switch back to waiting for
-				// data.
-				key.interestOps(SelectionKey.OP_READ);
-			}
-			
+				if (queue.isEmpty()) {
+					// We wrote away all data, so we're no longer interested
+					// in writing on this socket. Switch back to waiting for
+					// data.
+					key.interestOps(SelectionKey.OP_READ);
+				}
+			}			
 		}
 	}
 
@@ -219,10 +226,10 @@ public class Server  implements Runnable{
   public static void main(String args[]){
 	    try{
 	    	
-	    	AsyncClient asyncClient = new AsyncClient();
+//	    	AsyncClient asyncClient = new AsyncClient();
 //	    	new Thread(asyncClient).start();
 	    	
-	    	Middleware middleware = new Middleware(asyncClient);
+	    	Middleware middleware = new Middleware();
 	    	new Thread(middleware).start();
 	    	
 	    	Server server = new Server(middleware);

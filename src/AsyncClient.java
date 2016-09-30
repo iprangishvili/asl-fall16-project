@@ -196,7 +196,7 @@ public class AsyncClient implements Runnable{
 		socketChannel.configureBlocking(false);
 	
 		// Kick off connection establishment
-		socketChannel.connect(new InetSocketAddress("127.0.0.1", 8989));
+		socketChannel.connect(new InetSocketAddress("127.0.0.1", 8000));
 	
 		// Queue a channel registration since the caller is not the 
 		// selecting thread. As part of the registration we'll register
