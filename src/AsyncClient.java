@@ -16,7 +16,7 @@ import java.util.Map;
 public class AsyncClient implements Runnable{
 
 	private Selector selector;
-	private Map<SocketChannel,List<ClientRequestHandler>> requestList = new HashMap<SocketChannel,List<ClientRequestHandler>>();
+	private Map<SocketChannel,ClientRequestHandler> requestList = new HashMap<SocketChannel,ClientRequestHandler>();
 	private LinkedList<SocketChangeRequestInfo> pendingChanges = new LinkedList<SocketChangeRequestInfo>();
 	
 	public AsyncClient() throws IOException{
@@ -133,19 +133,15 @@ public class AsyncClient implements Runnable{
 	    readBuffer.get(buff, 0, length);
 //	    System.out.println("Server said: "+new String(buff));
 	    
-	    ClientRequestHandler clientHandler = (ClientRequestHandler) key.attachment();
-	    if(clientHandler != null){
-	    	
-//	    	System.out.println("Sending memcached response back to memaslap");
-//	    	key.attach(null);
-	    	channel.close();
+	    synchronized (this.requestList) {
+			ClientRequestHandler clientHandler = this.requestList.get(channel);
+			// delete socketchannel key from hashmap
+			this.requestList.remove(channel);
+			// close channel/key
+			channel.close();
 			key.cancel();
-			
-	    	clientHandler.server.send(clientHandler.socket, (byte[])readBuffer.array());
-	    }
-	    else{
-	    	System.out.println("CLIENT HANDLER IS NULL (BAD BEHAVIOUR)!!!!");
-	    }
+			clientHandler.server.send(clientHandler.socket, (byte[])readBuffer.array());
+		}
 	    
 	}
 	
@@ -155,36 +151,10 @@ public class AsyncClient implements Runnable{
 		SocketChannel socketChannel = (SocketChannel) key.channel();
 
 		synchronized (this.requestList) {
-			List<ClientRequestHandler> queue = (List<ClientRequestHandler>) this.requestList.get(socketChannel);
-			if(queue == null){
-				System.out.println("this is the error!!!!");
-			}
-			if(!queue.isEmpty()){
-				ClientRequestHandler tempClient = (ClientRequestHandler) queue.get(0);
-				key.attach(tempClient);
-//				System.out.println("Client request handler: " + tempClient.server + " channel: " + tempClient.socket);
-			}
-			// Write until there's not more data ...
-			while (!queue.isEmpty()) {
-				ClientRequestHandler clientRH = (ClientRequestHandler) queue.get(0);
-//				System.out.println("setting loop: " + clientRH.data);
-
-				socketChannel.write(clientRH.data);
-				if (clientRH.data.remaining() > 0) {
-					// ... or the socket's buffer fills up
-					break;
-				}
-				queue.remove(0);
-			}
 			
-
-			if (queue.isEmpty()) {
-//				System.out.println("setting read");
-				// We wrote away all data, so we're no longer interested
-				// in writing on this socket. Switch back to waiting for
-				// data.
-				key.interestOps(SelectionKey.OP_READ);
-			}
+			ClientRequestHandler clientRH = this.requestList.get(socketChannel);
+			socketChannel.write(clientRH.data);
+			key.interestOps(SelectionKey.OP_READ);
 			
 		}
 	}
@@ -196,7 +166,7 @@ public class AsyncClient implements Runnable{
 		socketChannel.configureBlocking(false);
 	
 		// Kick off connection establishment
-		socketChannel.connect(new InetSocketAddress("127.0.0.1", 8000));
+		socketChannel.connect(new InetSocketAddress(clientHandler.memcachedServer, clientHandler.memcahedPort));
 	
 		// Queue a channel registration since the caller is not the 
 		// selecting thread. As part of the registration we'll register
@@ -207,12 +177,8 @@ public class AsyncClient implements Runnable{
 			this.pendingChanges.add(new SocketChangeRequestInfo(socketChannel, SocketChangeRequestInfo.REGISTER, SelectionKey.OP_CONNECT));
 			// And queue the data we want written
 			synchronized (this.requestList) {
-				List<ClientRequestHandler> queueT = (List<ClientRequestHandler>) this.requestList.get(socketChannel);
-				if (queueT == null) {
-					queueT = new ArrayList<ClientRequestHandler>();
-					this.requestList.put(socketChannel, queueT);
-				}
-				queueT.add(clientHandler);
+
+				this.requestList.put(socketChannel, clientHandler);
 			}
 		}
 		

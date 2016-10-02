@@ -10,7 +10,7 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.util.*;
 
-public class Server  implements Runnable{
+public class Server implements Runnable{
 
   // parameters
   private static int PORT = 11212;
@@ -20,7 +20,7 @@ public class Server  implements Runnable{
   private ServerSocketChannel serverSocketChannel;
   private Middleware middleware;
   private List<SocketChangeRequestInfo> pendingChanges = new LinkedList<SocketChangeRequestInfo>();
-  private Map<SocketChannel, List<ByteBuffer>> pendingData = new HashMap<SocketChannel,List<ByteBuffer>>();
+  private Map<SocketChannel,ByteBuffer> pendingData = new HashMap<SocketChannel,ByteBuffer>();
   
   public Server(Middleware middleware) throws IOException{
 	  this.selector = initSelector();
@@ -99,38 +99,23 @@ public class Server  implements Runnable{
     	  }
       }
       
-      // send data to middleware for further processing
-//      if(!clientInput.isEmpty()){
-//		  System.out.println("Received Data: " + clientInput);
+     
     	  currentKey.interestOps(0);
 		  middleware.processRequest(this, sc, echoBuffer.array(), code);
-//      }
-
   }
   
   public void send(SocketChannel socket, byte[] data) throws IOException {
 //	  System.out.println("Sending Data");
 	  
 		synchronized (this.pendingChanges) {
-//			// Indicate we want the interest ops set changed
-//
-//			// And queue the data we want written
+
 			synchronized (this.pendingData) {
 				this.pendingChanges.add(new SocketChangeRequestInfo(socket, SocketChangeRequestInfo.CHANGEOPS, SelectionKey.OP_WRITE));
-
-				List<ByteBuffer> queue = (List<ByteBuffer>) this.pendingData.get(socket);
-				if (queue == null) {
-					queue = new ArrayList<ByteBuffer>();
-					synchronized (queue) {
-						this.pendingData.put(socket, queue);
-
-					}
-				}
-				synchronized (queue) {
-					queue.add(ByteBuffer.wrap(data));
-					this.selector.wakeup();
-
-				}
+				
+				this.pendingData.put(socket, ByteBuffer.wrap(data));
+				this.selector.wakeup();
+				
+				
 			}
 		}
 	  	  
@@ -142,29 +127,13 @@ public class Server  implements Runnable{
 		SocketChannel socketChannel = (SocketChannel) key.channel();
 
 		synchronized (this.pendingData) {
-			List<ByteBuffer> queue = (List<ByteBuffer>) this.pendingData.get(socketChannel);
-			synchronized (queue) {
-				// Write until there's not more data ...
-				while (!queue.isEmpty()) {
-					ByteBuffer buf = (ByteBuffer) queue.get(0);
-					socketChannel.write(buf);
-					if (buf.remaining() > 0) {
-						// ... or the socket's buffer fills up
-						break;
-					}
-					queue.remove(0);
-				}
-
-				if (queue.isEmpty()) {
-					// We wrote away all data, so we're no longer interested
-					// in writing on this socket. Switch back to waiting for
-					// data.
-					key.interestOps(SelectionKey.OP_READ);
-				}
-			}			
+			ByteBuffer buf = this.pendingData.get(socketChannel);
+			socketChannel.write(buf);
+			key.interestOps(SelectionKey.OP_READ);
 		}
 	}
 
+  
   public void run(){
 	  
 	  while(true){
@@ -177,13 +146,8 @@ public class Server  implements Runnable{
 						SocketChangeRequestInfo change = (SocketChangeRequestInfo) changes.next();
 						switch (change.type) {
 						case SocketChangeRequestInfo.CHANGEOPS:
-							SelectionKey key = change.socket.keyFor(this.selector);
-							// NULL POINTER HERE;
-							// KEY IS CANCELED or NULL but isn't removed from pendingChanges
-							// IF no other solution need check statement 
-//							if(key != null && key.isValid()){
-								key.interestOps(change.ops);
-//							}
+							SelectionKey key = change.socket.keyFor(this.selector);							
+							key.interestOps(change.ops);
 						}
 					}
 					this.pendingChanges.clear();
@@ -213,8 +177,8 @@ public class Server  implements Runnable{
 			  }
 		  }
 		  catch(Exception e){
-			// if one of the clients (memaslap) disconnects badly;
-	    	  // clear all change data
+			  // if one of the clients (memaslap) disconnects badly;
+			  // clear all change data
 	    	  // not handling it properly yet; Find out if it needs to be handled at all;
 	    	  this.pendingChanges.clear();
 	    	  this.pendingData.clear();
@@ -225,9 +189,6 @@ public class Server  implements Runnable{
   
   public static void main(String args[]){
 	    try{
-	    	
-//	    	AsyncClient asyncClient = new AsyncClient();
-//	    	new Thread(asyncClient).start();
 	    	
 	    	Middleware middleware = new Middleware();
 	    	new Thread(middleware).start();

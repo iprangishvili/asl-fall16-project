@@ -9,15 +9,17 @@ public class SyncClient implements Runnable{
 	
 	private SocketChannel socketChannel;
 	private ClientRequestHandler clientHandler;
+	private String memcachedServer;
+	private int memcachedPort;
 	
 	/**
 	 * constructor
 	 * @throws IOException 
 	 */
-	public SyncClient(ClientRequestHandler clientHandler) throws IOException{
+	public SyncClient(ClientRequestHandler clientHandler, String selectedServer) throws IOException{
 		this.clientHandler = clientHandler;
-		
-
+		this.memcachedServer = selectedServer.split(":")[0];
+		this.memcachedPort = Integer.parseInt(selectedServer.split(":")[1]);
 	}
 	
 	public void run(){
@@ -29,7 +31,7 @@ public class SyncClient implements Runnable{
 
 			this.socketChannel = SocketChannel.open();
 			this.socketChannel.configureBlocking(true);
-			this.socketChannel.connect(new InetSocketAddress("127.0.0.1", 8000));
+			this.socketChannel.connect(new InetSocketAddress(this.memcachedServer, this.memcachedPort));
 			ByteBuffer readBuff = ByteBuffer.allocate(4024);
 			// write to memcached server
 			while(clientHandler.data.hasRemaining()) {
