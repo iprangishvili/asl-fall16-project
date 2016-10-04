@@ -1,42 +1,55 @@
 import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.net.Socket;
-import java.net.SocketAddress;
 import java.nio.ByteBuffer;
-import java.nio.channels.ClosedChannelException;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.util.*;
 
-public class Server implements Runnable{
+public class Server extends Thread{
 
   // parameters
-  private static int PORT = 11212;
   
   // Global Variables
   private Selector selector;
   private ServerSocketChannel serverSocketChannel;
   private Middleware middleware;
+  
   private List<SocketChangeRequestInfo> pendingChanges = new LinkedList<SocketChangeRequestInfo>();
   private Map<SocketChannel,ByteBuffer> pendingData = new HashMap<SocketChannel,ByteBuffer>();
   
-  public Server(Middleware middleware) throws IOException{
+  private int PORT;
+  private String hostAddress;
+
+  
+  public Server(String myIp, int myPort, List<String> mcAddresses,int numThreadsPTP,int writeToCount) throws IOException{
+	  this.PORT = myPort;
+	  this.hostAddress = myIp;
+	  
+	  this.middleware = new Middleware(mcAddresses, numThreadsPTP, writeToCount);
 	  this.selector = initSelector();
-	  this.middleware = middleware;
+	 
+	  
   }
   
+  
+  /**
+   * initialize server socket channel and selector
+   * @return selector
+   * @throws IOException
+   */
   private Selector initSelector() throws IOException{
 	  
 	  // open a socket
 	this.serverSocketChannel = ServerSocketChannel.open();
 	// non-blocking socket configuration
 	serverSocketChannel.configureBlocking(false);
-	// bind socket to specified port
-	serverSocketChannel.socket().bind(new InetSocketAddress(PORT));
+	// bind socket to specified IP and port
+	InetSocketAddress address = new InetSocketAddress(this.hostAddress, this.PORT);
+	serverSocketChannel.socket().bind(address);
 	
-	System.out.println("server started on PORT: " + PORT);
+	System.out.println("server started on PORT: " + this.PORT);
 	
 	
 	Selector newselector = Selector.open();
@@ -45,6 +58,13 @@ public class Server implements Runnable{
 	  return newselector;
   }
   
+  
+  /**
+   * accept new connection from client (memaslap)
+   * and register read action on selection key
+   * @param key - SelectionKey with accept action
+   * @throws IOException
+   */
   private void accept(SelectionKey key) throws IOException{
 	  
 //	  System.out.println("Connection has been accepted");
@@ -60,10 +80,12 @@ public class Server implements Runnable{
   }
   
   /**
-   * read the data sent from client
+   * read the data sent from client (memaslap)
+   * register selection key with no action
+   * and invoke processRequest method from Middleware
    * @param currentKey selection key with read action
    * @return String representation of client data
- * @throws Exception 
+   * @throws Exception 
    */
   private void read(SelectionKey currentKey) throws Exception{
 
@@ -72,10 +94,11 @@ public class Server implements Runnable{
       String clientInput = new String();
 	  SocketChannel sc = (SocketChannel) currentKey.channel();
       int code = 0;
+      byte b[];
       try{
     	  
     	  code = sc.read(echoBuffer);
-    	  byte b[] = new byte[echoBuffer.position()];
+    	  b = new byte[echoBuffer.position()];
           echoBuffer.flip();
           echoBuffer.get(b);
           clientInput+=new String(b, "UTF-8");
@@ -93,17 +116,19 @@ public class Server implements Runnable{
     	  currentKey.cancel();
     	  return;
       }
-      else{
-    	  if(clientInput.length()>1){
-    		  clientInput = clientInput.substring(0, clientInput.length()-2);
-    	  }
-      }
       
-     
     	  currentKey.interestOps(0);
-		  middleware.processRequest(this, sc, echoBuffer.array(), code);
+		  this.middleware.processRequest(this, sc, b);
   }
   
+  /**
+   * create a selectionKey action Change request to write
+   * and add to pendingChanges list
+   * add data to pendingData hashmap for specified socket channel
+   * @param socket - socket channel
+   * @param data - data to send to memaslap (received from memcached server)
+   * @throws IOException
+   */
   public void send(SocketChannel socket, byte[] data) throws IOException {
 //	  System.out.println("Sending Data");
 	  
@@ -121,7 +146,12 @@ public class Server implements Runnable{
 	  	  
 	}
   
-
+	/**
+	 * write to client (memaslap)
+	 * and register selection key action to read
+	 * @param key - selection key with write action
+	 * @throws IOException
+	 */
   private void write(SelectionKey key) throws IOException {
 //	  System.out.println("Writing Data to memaslap");
 		SocketChannel socketChannel = (SocketChannel) key.channel();
@@ -187,18 +217,17 @@ public class Server implements Runnable{
 	  }
   }
   
-  public static void main(String args[]){
-	    try{
-	    	
-	    	Middleware middleware = new Middleware();
-	    	new Thread(middleware).start();
-	    	
-	    	Server server = new Server(middleware);
-	    	new Thread(server).start();
-	    }
-	    catch(IOException e){
-	      e.printStackTrace();
-	    }
-	  }
+//  public static void main(String args[]){
+//	    try{
+//	    	
+//	    	Middleware middleware = new Middleware();
+//	    	
+//	    	Server server = new Server(middleware);
+//	    	new Thread(server).start();
+//	    }
+//	    catch(IOException e){
+//	      e.printStackTrace();
+//	    }
+//  }
   
 }

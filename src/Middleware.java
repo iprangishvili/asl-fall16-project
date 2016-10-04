@@ -3,58 +3,77 @@ import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 import java.security.NoSuchAlgorithmException;
 import java.util.LinkedList;
+import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionHandler;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
-import com.sun.security.ntlm.Client;
-import com.sun.xml.internal.bind.v2.runtime.unmarshaller.XsiNilLoader.Array;
 
+public class Middleware{
+	
+//	private AsyncClient asyncClient;
+//	private ThreadPoolExecutor executorPool;
+//	private ArrayBlockingQueue<ClientRequestHandler> setQueue;
+//	private ClientRequestHandler currentRequest;
 
-public class Middleware implements Runnable{
 	
-	private AsyncClient asyncClient;
-	private ThreadPoolExecutor executorPool;
-	private ArrayBlockingQueue<ClientRequestHandler> setQueue;
-	private int maxThreadSize;
-	private int queueSize;
-	private LinkedList<String> serverList;
+	// locally specified variables
+	private int setQueueSize = 10; // queue size for set
+	private int getQueueSize = 30; // queue size for get
+	private int numVirtualNodes = 200; // number of virtual nodes for servers (uniform key space distribution)
+
+	// user specified variables at runtime
+	private List<String> mcAddresses; // memcached server addresses
+	private int numThreadsPTP; // maximum number of threads in Thread pool
+	private int numReplication; // number of replication for set
 	
-	private ConsistentHash consistentHash;
+	private ConcurrentHashMap<String, ManageQueue> delegateToQueue; // hashmap of <server IP, manageQueue> for storing server specific queue
+
+	private LinkedList<Integer> keySpaceDistr = new LinkedList<Integer>(); // counter for key space distribution of hashing
+	private ConsistentHash consistentHash; 
 
 	/**
 	 * TODO: add parameters
 	 * @throws IOException 
+	 * @throws NoSuchAlgorithmException 
 	 */
-	public Middleware() throws IOException{
+	public Middleware(List<String> mcAddresses, int numThreadsPTP, int writeToCount) throws IOException{
 		
-		// populate list with servers TODO: put it in arguments
-		serverList = new LinkedList<String>();
-		serverList.add("127.0.0.1:8000");
-		serverList.add("127.0.0.1:7070");
-		serverList.add("127.0.0.1:5050");
 		
-		// create cache for servers
+		this.mcAddresses = mcAddresses;
+		this.numThreadsPTP = numThreadsPTP;
+		this.numReplication = writeToCount;
 		
-		try {
-			this.consistentHash = new ConsistentHash(200, serverList);
-		} catch (NoSuchAlgorithmException e1) {
-			// TODO Auto-generated catch block
-			e1.printStackTrace();
+		for(int i=0; i<mcAddresses.size();i++){
+			keySpaceDistr.add(0);
 		}
-		
+				
+		// create hash key for servers
+		// replicate virtual nodes for uniform distribution of key space
+		// TODO: explore uniform distribution of key space more 
+		// look into if current strategy works
+		this.consistentHash = new ConsistentHash(this.numVirtualNodes, this.mcAddresses);
 
-		this.maxThreadSize = 50;
-		this.queueSize = 40;
-		
-		// initialize set/get command queue
-		this.setQueue = new ArrayBlockingQueue<ClientRequestHandler>(10);
-		
-		//Get the ThreadFactory implementation to use
+		// create thread factory for threadPoolExecutor
 		ThreadFactory threadFactory = Executors.defaultThreadFactory();
+		// create rejection handler for threadPoolExecutor
+		RejectedExecutionHandler rejectExecution = setupRejectionHandler();
+		// create an internal structure of middleware
+		setupInternalStructure(rejectExecution, threadFactory);
+		
+	}
+	
+	/**
+	 * create rejection handlers for ThreadPoolExecutor
+	 * rejectExecution - discarding policy
+	 * customReject - custom rejection handler waiting for queue to be available (blocking)
+	 * on default using rejectExecution
+	 */
+	private RejectedExecutionHandler setupRejectionHandler(){
 		
 		RejectedExecutionHandler rejectExecution = new ThreadPoolExecutor.DiscardPolicy();
 		
@@ -68,44 +87,100 @@ public class Middleware implements Runnable{
                     throw new RuntimeException("Interrupted while submitting task", e);
                 }
             }
-            };
-	 	
-        // creating the ThreadPoolExecutor
-		// when queue is full; right now when queue is full new task is disregarded 
-		this.executorPool = new ThreadPoolExecutor(maxThreadSize, 
-													maxThreadSize, 
-													0L, 
-													TimeUnit.MILLISECONDS, 
-													new ArrayBlockingQueue<Runnable>(queueSize), 
-													threadFactory, 
-													rejectExecution);
-	
+        };
         
-		// initiate client connection to memcached server
-		this.asyncClient = new AsyncClient();
-		new Thread(asyncClient).start();
-		
-
+		return rejectExecution;
 	}
 	
-	public void processRequest(Server server, SocketChannel socket, byte[] input, int count) throws Exception{
-		//TODO: process hash key; consistent hashing;
+	/**
+	 * initialize queue for set and ThreadPoolExecutor for get
+	 * for each server; 
+	 * save the queue in hashMap based on the server IP:Port key
+	 * @throws IOException 
+	 * 
+	 */
+	private void setupInternalStructure(RejectedExecutionHandler rejectExecution, ThreadFactory threadFactory) throws IOException{
+		
+		this.delegateToQueue = new ConcurrentHashMap<String, ManageQueue>();
+		String curr_server;
+		int curr_port;
+		// create separate set queue and get thread pool for each memcachedServer
+		for(int i=0; i<this.mcAddresses.size(); i++){
+
+			curr_server = this.mcAddresses.get(i).split(":")[0];
+			curr_port = Integer.parseInt(this.mcAddresses.get(i).split(":")[1]);
+			
+			// creating the ThreadPoolExecutor
+			// when queue is full; right now when queue is full new task is disregarded 
+			ThreadPoolExecutor currExecutor = new ThreadPoolExecutor(numThreadsPTP, 
+														numThreadsPTP, 
+														100, 
+														TimeUnit.MILLISECONDS, 
+														new ArrayBlockingQueue<Runnable>(getQueueSize), 
+														threadFactory, 
+														rejectExecution);
+			
+			ManageQueue tempQueue = new ManageQueue(this.setQueueSize, currExecutor);
+			this.delegateToQueue.put(this.mcAddresses.get(i), tempQueue);
+			AsyncClient tempClient = new AsyncClient(curr_server, curr_port, tempQueue.setQueue);
+			new Thread(tempClient, this.mcAddresses.get(i)).start();
+		}
+	}
+	
+	
+	/**
+	 * monitor key space distribution between 
+	 * memcached servers
+	 * @param selectedServer - address of memcached server (IP:PORT)
+	 */
+	private void monitorKeySpace(String selectedServer){
+		System.out.println("!!!!!: ");
+		for(int i=0; i<this.mcAddresses.size(); i++){
+			if(selectedServer.equals(this.mcAddresses.get(i))){
+				keySpaceDistr.set(i, keySpaceDistr.get(i) + 1);
+			}
+			System.out.println(keySpaceDistr.get(i) + " ");
+		}
+	}
+	
+	
+	/**
+	 * process request from memaslap. 
+	 * parse the request data: based on get/set command.
+	 * hash the key, find the relevant memcached server
+	 * and add the request to relevant queue based on 
+	 * server identity and command (set/get) 
+	 * 
+	 * @param server - instance of Server class
+	 * @param socket - socket channel from which request was received (memaslap)
+	 * @param input - request data
+	 * @throws Exception
+	 */
+	public void processRequest(Server server, SocketChannel socket, byte[] input) throws Exception{
+
 		// initial parsing for set/get
 		
-		ClientRequestHandler clientRequestForward = new ClientRequestHandler(server, socket, ByteBuffer.wrap(input), count);
-		String[] inputStr = new String(input).split(" ");
+		ClientRequestHandler clientRequestForward = new ClientRequestHandler(server, socket, ByteBuffer.wrap(input));
+		String[] inputStr = new String(input, "UTF-8").split(" ");
+//		System.out.println("received: " + new String(input, "UTF-8"));
 		
 		if(inputStr.length >= 2){
-			String selectedServer = this.consistentHash.get(inputStr[1]);
-			System.out.println("selected server: " + selectedServer);
+
+			// get the memcached server address to which the request key belongs
+			String selectedServer = this.consistentHash.get(inputStr[1].trim());
+			
+			// monitor the key space distribution of 
+//			monitorKeySpace(selectedServer);
+			
+			// add request to relevant queue
 			if(inputStr[0].equals("get")){
-				this.executorPool.execute(new SyncClient(clientRequestForward, selectedServer));				
+//				this.executorPool.execute(new SyncClient(clientRequestForward, selectedServer));	
+				this.delegateToQueue.get(selectedServer).executor.execute(new SyncClient(clientRequestForward, selectedServer));
 			}
 			else if(inputStr[0].equals("set")){
-				
 				// block if setQueue is full
-				clientRequestForward.memCachedSetting(selectedServer);
-				this.setQueue.offer(clientRequestForward);
+//				this.setQueue.offer(clientRequestForward);
+				this.delegateToQueue.get(selectedServer).setQueue.offer(clientRequestForward);
 //				System.out.println(this.setQueue.size());
 //				this.asyncClient.sendToMemCache(clientRequestForward);
 
@@ -114,25 +189,39 @@ public class Middleware implements Runnable{
 		
 	}
 	
-	public void run(){
-		
-		ClientRequestHandler currentRequest;
-		
-		while(true){
+//	public void run(){
+				
+//		while(true){
+//			
+//			
+//			// iterate over get/set queues for each memcached server
+//			Iterator<ManageQueue> queueIterator = this.delegateToQueue.values().iterator();
+//			while(queueIterator.hasNext()){
+//				ManageQueue currQueue = queueIterator.next();
+//				if((currentRequest = currQueue.setQueue.poll()) != null){
+//					try {
+//						currQueue.asyncClient.sendToMemCache(currentRequest);
+//					} catch (IOException e) {
+//						// TODO Auto-generated catch block
+//						e.printStackTrace();
+//					}
+//				}
+//				
+//			}
 			
-			if((currentRequest = this.setQueue.poll()) != null){
-				try {
-					this.asyncClient.sendToMemCache(currentRequest);
-				} catch (IOException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
-			}
 			
-		}
-		// TODO: thread pooling; waiting queue; mitigate sendToMemcache here
+//		if((currentRequest = this.setQueue.poll()) != null){
+//			try {
+//				this.asyncClient.sendToMemCache(currentRequest);
+//			} catch (IOException e) {
+//				// TODO Auto-generated catch block
+//				e.printStackTrace();
+//			}
+//		}
 		
-	}
+//		}
+		
+//	}
 	
 	
 }

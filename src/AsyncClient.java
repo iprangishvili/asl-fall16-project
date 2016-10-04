@@ -10,17 +10,27 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ArrayBlockingQueue;
 
 
 
 public class AsyncClient implements Runnable{
 
 	private Selector selector;
+	private String memcachedServer;
+	private int memcachedPort;
 	private Map<SocketChannel,ClientRequestHandler> requestList = new HashMap<SocketChannel,ClientRequestHandler>();
-	private LinkedList<SocketChangeRequestInfo> pendingChanges = new LinkedList<SocketChangeRequestInfo>();
+//	private LinkedList<SocketChangeRequestInfo> pendingChanges = new LinkedList<SocketChangeRequestInfo>();
+	private ArrayBlockingQueue<ClientRequestHandler> setQueue;
 	
-	public AsyncClient() throws IOException{
+	private ClientRequestHandler receivedClientH = null;
+
+	
+	public AsyncClient(String memcachedServer, int memcachedPort, ArrayBlockingQueue<ClientRequestHandler> setQueue) throws IOException{
 		this.selector = Selector.open();
+		this.memcachedServer = memcachedServer;
+		this.memcachedPort = memcachedPort;
+		this.setQueue = setQueue;
 	}
 	
 	
@@ -28,26 +38,57 @@ public class AsyncClient implements Runnable{
 		try {
 	        while (true){
 	        	
+	        	if((receivedClientH = this.setQueue.poll()) != null){
+//	        	try {
+//					receivedClientH = this.setQueue.take();
+//				} catch (InterruptedException e) {
+//					// TODO Auto-generated catch block
+//					e.printStackTrace();
+//				}
+//	        		System.out.println("AsyncClient for server port: " + Thread.currentThread().getName());
+//	        		System.out.println("retreiving from set queue: " + this.setQueue.size());
+	        		
+	        		// Create a non-blocking socket channel
+	        		SocketChannel socketChannel = SocketChannel.open();
+	        		socketChannel.configureBlocking(false);
+	        	
+	        		// Kick off connection establishment
+	        		socketChannel.connect(new InetSocketAddress(this.memcachedServer, this.memcachedPort));
+	        		
+        			// socketChannel to hashmap to retreive later the associated data
+	        		// TODO: explore if there is need to use syncronized block for requestList
+        			synchronized (this.requestList) {
+        				this.requestList.put(socketChannel, receivedClientH);
+        			}
+	        		socketChannel.register(this.selector, SelectionKey.OP_CONNECT);
+//	        		this.selector.wakeup();
+	        	}       		
+	        		
+	        		
+	        		
+	        		
 	        	// Process any pending changes
-				synchronized (this.pendingChanges) {
-					Iterator<SocketChangeRequestInfo> changes = this.pendingChanges.iterator();
-					while (changes.hasNext()) {
-						SocketChangeRequestInfo change = (SocketChangeRequestInfo) changes.next();
-						switch (change.type) {
-						case SocketChangeRequestInfo.CHANGEOPS:
-							SelectionKey key = change.socket.keyFor(this.selector);
-							key.interestOps(change.ops);
-							break;
-						case SocketChangeRequestInfo.REGISTER:
-							change.socket.register(this.selector, change.ops);
-							break;
-						}
-					}
-					this.pendingChanges.clear();
-				}
+//				synchronized (this.pendingChanges) {
+//					Iterator<SocketChangeRequestInfo> changes = this.pendingChanges.iterator();
+//					while (changes.hasNext()) {
+//						SocketChangeRequestInfo change = (SocketChangeRequestInfo) changes.next();
+//						switch (change.type) {
+//						case SocketChangeRequestInfo.CHANGEOPS:
+//							SelectionKey key = change.socket.keyFor(this.selector);
+//							key.interestOps(change.ops);
+//							break;
+//						case SocketChangeRequestInfo.REGISTER:
+//							change.socket.register(this.selector, change.ops);
+//							break;
+//						}
+//					}
+//					this.pendingChanges.clear();
+//				}
+	        	
+	        	
 
-	            this.selector.select();
-	             
+	            int numChannels = this.selector.selectNow();
+	            if(numChannels == 0) continue;
 	            Iterator<SelectionKey> keys = this.selector.selectedKeys().iterator();
 
 	            while (keys.hasNext()){
@@ -108,6 +149,15 @@ public class AsyncClient implements Runnable{
 	    }
 	}
 	
+	/**
+	 * read data sent from memcached server, 
+	 * get from requestList information (server instance,
+	 * socket channel), send the read data to memaslap using that 
+	 * information. At last delete socket channel key from requestList 
+	 * map, close the socket channel and cancel the key
+	 * @param key
+	 * @throws IOException
+	 */
 	private void read (SelectionKey key) throws IOException {
 //		System.out.println("in read function memcached client");
 	    SocketChannel channel = (SocketChannel) key.channel();
@@ -145,6 +195,13 @@ public class AsyncClient implements Runnable{
 	    
 	}
 	
+	/**
+	 * get data from requestList based on specific socket channel
+	 * write data to memcached server and
+	 * register selection key with READ action
+	 * @param key
+	 * @throws IOException
+	 */
 	private void write(SelectionKey key) throws IOException {
 //		System.out.println("writing to memcached...");
 		
@@ -159,32 +216,32 @@ public class AsyncClient implements Runnable{
 		}
 	}
 	
-	public void sendToMemCache(ClientRequestHandler clientHandler) throws IOException{
-	
-		// Create a non-blocking socket channel
-		SocketChannel socketChannel = SocketChannel.open();
-		socketChannel.configureBlocking(false);
-	
-		// Kick off connection establishment
-		socketChannel.connect(new InetSocketAddress(clientHandler.memcachedServer, clientHandler.memcahedPort));
-	
-		// Queue a channel registration since the caller is not the 
-		// selecting thread. As part of the registration we'll register
-		// an interest in connection events. These are raised when a channel
-		// is ready to complete connection establishment.
-		
-		synchronized(this.pendingChanges) {
-			this.pendingChanges.add(new SocketChangeRequestInfo(socketChannel, SocketChangeRequestInfo.REGISTER, SelectionKey.OP_CONNECT));
-			// And queue the data we want written
-			synchronized (this.requestList) {
-
-				this.requestList.put(socketChannel, clientHandler);
-			}
-		}
-		
-		
-		this.selector.wakeup();
-		
-	}
+//	public void sendToMemCache(ClientRequestHandler clientHandler) throws IOException{
+//	
+//		// Create a non-blocking socket channel
+//		SocketChannel socketChannel = SocketChannel.open();
+//		socketChannel.configureBlocking(false);
+//	
+//		// Kick off connection establishment
+//		socketChannel.connect(new InetSocketAddress(this.memcachedServer, this.memcachedPort));
+//	
+//		// Queue a channel registration since the caller is not the 
+//		// selecting thread. As part of the registration we'll register
+//		// an interest in connection events. These are raised when a channel
+//		// is ready to complete connection establishment.
+//		
+//		synchronized(this.pendingChanges) {
+//			this.pendingChanges.add(new SocketChangeRequestInfo(socketChannel, SocketChangeRequestInfo.REGISTER, SelectionKey.OP_CONNECT));
+//			// And queue the data we want written
+//			synchronized (this.requestList) {
+//
+//				this.requestList.put(socketChannel, clientHandler);
+//			}
+//		}
+//		
+//		
+//		this.selector.wakeup();
+//		
+//	}
 
 }
