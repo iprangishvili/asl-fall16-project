@@ -5,13 +5,11 @@ import java.util.concurrent.ThreadPoolExecutor;
 public class ManageQueue {
 	
 	public ArrayBlockingQueue<ClientRequestHandler> setQueue;
-	public ThreadPoolExecutor executor;
-//	public AsyncClient asyncClient;
-	
-	public ManageQueue(int capacity, ThreadPoolExecutor executor){
+	public ArrayBlockingQueue<ClientRequestHandler> getQueue;
+
+	public ManageQueue(int capacity, int getCapacity){
 		this.setQueue = new ArrayBlockingQueue<ClientRequestHandler>(capacity, true);
-		this.executor = executor;
-//		this.asyncClient = asyncClient;
+		this.getQueue = new ArrayBlockingQueue<ClientRequestHandler>(getCapacity);
 	}
 
 }

@@ -2,6 +2,10 @@ import java.math.BigInteger;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.SortedMap;
 import java.util.TreeMap;
 
@@ -11,6 +15,8 @@ public class ConsistentHash {
 	 private MessageDigest hashFunction;
 	 private int numberOfReplicas;
 	 private final SortedMap<BigInteger, String> circle = new TreeMap<BigInteger, String>();
+	 
+//	 private static final BigInteger ONE;
 	
 	 /**
 	  * creates hash for each server and virtual node
@@ -75,6 +81,40 @@ public class ConsistentHash {
 	     number = tailMap.isEmpty() ? circle.firstKey() : tailMap.firstKey();
 	   }
 	   return circle.get(number);
+	 }
+	 
+	 /**
+	  * get a list of hash keys based on the number of replications
+	  * @param key
+	  * @param numReplica
+	  * @return List of hash keys for servers 
+	  */
+	 public Collection<String> getWithReplica(String key, int numReplica){
+		 if(circle.isEmpty()){
+			 return null;
+		 }
+		 else{
+			 // hash the input key
+			 byte[] messageDigest = hashFunction.digest(key.getBytes());
+			 BigInteger number = new BigInteger(1, messageDigest);
+			 
+			 Map<String, String> replicaServers = new LinkedHashMap<String, String>();
+			 
+			 SortedMap<BigInteger, String> tailmap = circle.tailMap(number);
+		     number = tailmap.isEmpty() ? circle.firstKey() : tailmap.firstKey();
+		     String curr_server = circle.get(number);
+		     replicaServers.put(curr_server, curr_server);
+		     for(int i=1; i<numReplica; i++){
+			     while(replicaServers.get(curr_server) != null){
+			    	 tailmap = circle.tailMap(number.add(BigInteger.ONE));
+				     number = tailmap.isEmpty() ? circle.firstKey() : tailmap.firstKey();
+				     curr_server = circle.get(number);
+			     }
+//			     System.out.println("inside hashing: " + curr_server);
+			     replicaServers.put(curr_server, curr_server);
+		     }
+		     return replicaServers.values();
+		 }
 	 }
 
 }

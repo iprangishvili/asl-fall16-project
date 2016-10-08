@@ -21,15 +21,16 @@ public class Server extends Thread{
   
   private int PORT;
   private String hostAddress;
+  
+  private ByteBuffer echoBuffer = ByteBuffer.allocate(2024);
+
 
   
   public Server(String myIp, int myPort, List<String> mcAddresses,int numThreadsPTP,int writeToCount) throws IOException{
 	  this.PORT = myPort;
 	  this.hostAddress = myIp;
-	  
 	  this.middleware = new Middleware(mcAddresses, numThreadsPTP, writeToCount);
-	  this.selector = initSelector();
-	 
+	  this.selector = initSelector();	 
 	  
   }
   
@@ -88,8 +89,8 @@ public class Server extends Thread{
    * @throws Exception 
    */
   private void read(SelectionKey currentKey) throws Exception{
-
-	  ByteBuffer echoBuffer = ByteBuffer.allocate(4024);
+	  
+	  echoBuffer.clear();
 	  // Read the data
       String clientInput = new String();
 	  SocketChannel sc = (SocketChannel) currentKey.channel();
@@ -216,18 +217,5 @@ public class Server extends Thread{
 		  }
 	  }
   }
-  
-//  public static void main(String args[]){
-//	    try{
-//	    	
-//	    	Middleware middleware = new Middleware();
-//	    	
-//	    	Server server = new Server(middleware);
-//	    	new Thread(server).start();
-//	    }
-//	    catch(IOException e){
-//	      e.printStackTrace();
-//	    }
-//  }
   
 }
