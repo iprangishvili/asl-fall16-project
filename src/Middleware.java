@@ -3,7 +3,9 @@ import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Collection;
+import java.util.Date;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
@@ -14,15 +16,18 @@ import java.util.concurrent.RejectedExecutionHandler;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.logging.FileHandler;
+import java.util.logging.Formatter;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import java.util.logging.SimpleFormatter;
 
 
 public class Middleware{
 	
-//	private AsyncClient asyncClient;
-//	private ThreadPoolExecutor executorPool;
-//	private ArrayBlockingQueue<ClientRequestHandler> setQueue;
-//	private ClientRequestHandler currentRequest;
-
+	// Create Logging instance
+    private static final Logger LOGGER = Logger.getLogger("Middleware Logging Stats");
 	
 	// locally specified variables
 	private int setQueueSize = 1000; // queue size for set
@@ -35,8 +40,6 @@ public class Middleware{
 	private int numReplication; // number of replication for set
 	
 	private ConcurrentHashMap<String, ManageQueue> delegateToQueue; // hashmap of <server IP, manageQueue> for storing server specific queue
-
-	private LinkedList<Integer> keySpaceDistr = new LinkedList<Integer>(); // counter for key space distribution of hashing
 	private ConsistentHash consistentHash; 
 
 	/**
@@ -46,26 +49,18 @@ public class Middleware{
 	 */
 	public Middleware(List<String> mcAddresses, int numThreadsPTP, int writeToCount) throws IOException{
 		
+		// set logging 
+		setLogger();
 		
 		this.mcAddresses = mcAddresses;
 		this.numThreadsPTP = numThreadsPTP;
 		this.numReplication = writeToCount;
 		
-		for(int i=0; i<mcAddresses.size();i++){
-			keySpaceDistr.add(0);
-		}
-				
 		// create hash key for servers
 		// replicate virtual nodes for uniform distribution of key space
 		// TODO: explore uniform distribution of key space more 
 		// look into if current strategy works
 		this.consistentHash = new ConsistentHash(this.numVirtualNodes, this.mcAddresses);
-
-		// create thread factory for threadPoolExecutor
-//		ThreadFactory threadFactory = Executors.defaultThreadFactory();
-		// create rejection handler for threadPoolExecutor
-//		RejectedExecutionHandler rejectExecution = setupRejectionHandler();
-		
 		
 		// create an internal structure of middleware
 		setupInternalStructure();
@@ -73,28 +68,18 @@ public class Middleware{
 	}
 	
 	/**
-	 * create rejection handlers for ThreadPoolExecutor
-	 * rejectExecution - discarding policy
-	 * customReject - custom rejection handler waiting for queue to be available (blocking)
-	 * on default using rejectExecution
+	 * set logging configuration
+	 * @throws SecurityException
+	 * @throws IOException
 	 */
-	private RejectedExecutionHandler setupRejectionHandler(){
-		
-		RejectedExecutionHandler rejectExecution = new ThreadPoolExecutor.DiscardPolicy();
-		
-		// block if queue is full
-		RejectedExecutionHandler customReject = new RejectedExecutionHandler() {
-            public void rejectedExecution(Runnable r, ThreadPoolExecutor executor) {
-                try {
-                	System.out.println("waiting for queue to be available");
-                    executor.getQueue().put(r);
-                } catch (InterruptedException e) {
-                    throw new RuntimeException("Interrupted while submitting task", e);
-                }
-            }
-        };
-        
-		return rejectExecution;
+	private void setLogger() throws SecurityException, IOException{
+		Date date = new Date(); 
+		Handler log_fileHandler = new FileHandler("Log_data:" + date.toString() + ".csv");
+		LOGGER.setLevel(Level.INFO);
+		log_fileHandler.setFormatter(new MyCustomFormater());
+		LOGGER.addHandler(log_fileHandler);
+		LOGGER.setUseParentHandlers(false);
+//		LOGGER.info("Request Type, T_mw, T_queue, T_server, F_success");
 	}
 	
 	/**
@@ -111,21 +96,11 @@ public class Middleware{
 		// create separate set queue and get thread pool for each memcachedServer
 		for(int i=0; i<this.mcAddresses.size(); i++){
 			
-			// creating the ThreadPoolExecutor
-			// when queue is full; right now when queue is full new task is disregarded 
-//			ThreadPoolExecutor currExecutor = new ThreadPoolExecutor(numThreadsPTP, 
-//														numThreadsPTP, 
-//														99999, 
-//														TimeUnit.SECONDS, 
-//														new ArrayBlockingQueue<Runnable>(getQueueSize), 
-//														threadFactory, 
-//														rejectExecution);
-//			
 			ManageQueue tempQueue = new ManageQueue(this.setQueueSize, this.getQueueSize);
 			
 			// Sync client threads
 			for(int j=0; j<this.numThreadsPTP; j++){
-				new Thread(new SyncClient(tempQueue.getQueue, this.mcAddresses.get(i))).start();
+				new Thread(new SyncClient(tempQueue.getQueue, this.mcAddresses.get(i), LOGGER)).start();
 			}
 			
 //			AsyncClient tempClient = new AsyncClient(curr_server, curr_port, tempQueue.setQueue);
@@ -135,56 +110,31 @@ public class Middleware{
 		}
 	}
 	
-	
-	/**
-	 * monitor key space distribution between 
-	 * memcached servers
-	 * @param selectedServer - address of memcached server (IP:PORT)
-	 */
-	private void monitorKeySpace(String selectedServer){
-		System.out.println("!!!!!: ");
-		for(int i=0; i<this.mcAddresses.size(); i++){
-			if(selectedServer.equals(this.mcAddresses.get(i))){
-				keySpaceDistr.set(i, keySpaceDistr.get(i) + 1);
-			}
-			System.out.println(keySpaceDistr.get(i) + " ");
-		}
-	}
-	
-	
 	/**
 	 * process request from memaslap. 
 	 * parse the request data: based on get/set command.
 	 * hash the key, find the relevant memcached server
 	 * and add the request to relevant queue based on 
 	 * server identity and command (set/get) 
-	 * 
-	 * @param server - instance of Server class
-	 * @param socket - socket channel from which request was received (memaslap)
-	 * @param input - request data
+	 * @param clientRequestForward - holds necessary information
+	 * about request
 	 * @throws Exception
 	 */
-	public void processRequest(Server server, SocketChannel socket, byte[] input) throws Exception{
+	public void processRequest(RequestData clientRequestForward) throws Exception{
 
 		// initial parsing for set/get
-		
-		ClientRequestHandler clientRequestForward = new ClientRequestHandler(server, socket, ByteBuffer.wrap(input));
+		byte[] input = clientRequestForward.data.array();
 		String[] inputStr = new String(input, "UTF-8").split(" ");
-//		System.out.println("received: " + new String(input, "UTF-8"));
 		
 		if(inputStr.length >= 2){
-
-	
-			
-			// monitor the key space distribution of 
-//			monitorKeySpace(selectedServer);
 			
 			// add request to relevant queue
 			if(inputStr[0].equals("get")){
-				// get the memcached server address to which the request key belongs		
+				// get the memcached server address to which the request key belongs
 				String selectedServer = this.consistentHash.get(inputStr[1].trim());
-//				this.executorPool.execute(new SyncClient(clientRequestForward, selectedServer));	
-//				this.delegateToQueue.get(selectedServer).executor.execute(new SyncClient(clientRequestForward, selectedServer));
+				
+				// set the time of enqueue
+				clientRequestForward.set_time_enqueue();
 				this.delegateToQueue.get(selectedServer).getQueue.put(clientRequestForward);
 			}
 			else if(inputStr[0].equals("set")){				
@@ -192,23 +142,19 @@ public class Middleware{
 				if(this.numReplication == 1){
 					
 					String selectedServer = this.consistentHash.get(inputStr[1].trim());
+					
+					// set the time of enqueue
+					clientRequestForward.set_time_enqueue();
 					this.delegateToQueue.get(selectedServer).setQueue.put(clientRequestForward);
-
 				}
 				else if(this.numReplication > 1){
-//					System.out.println("here");
 					ArrayList<String> selectedServers = new ArrayList<String>(this.consistentHash.getWithReplica(inputStr[1].trim(), this.numReplication));
-//					Iterator<String> selectedServer.iterator();
+					// set replication addresses
 					clientRequestForward.setReplicaAddress(selectedServers);
-//					System.out.println("replication to server: " + curr_server);
+					// set the time of enqueue
+					clientRequestForward.set_time_enqueue();
 					this.delegateToQueue.get(selectedServers.get(0)).setQueue.put(clientRequestForward);
 				}
-
-				
-				// block if setQueue is full
-//				this.setQueue.offer(clientRequestForward);
-//				this.asyncClient.sendToMemCache(clientRequestForward);
-
 			}
 		}
 		

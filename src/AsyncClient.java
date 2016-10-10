@@ -21,19 +21,19 @@ public class AsyncClient implements Runnable{
 	private Selector selector;
 	private int replicate;
 	
-	private LinkedList<ClientRequestHandler> requestList = new LinkedList<ClientRequestHandler>();
-	private ArrayBlockingQueue<ClientRequestHandler> setQueue;
+	private LinkedList<RequestData> requestList = new LinkedList<RequestData>();
+	private ArrayBlockingQueue<RequestData> setQueue;
 	
 	private SocketChannel primarySocketChannel;
 	private Map<String, SocketChannel> secondaryConnections;
 	
 	// force socket channel to read memcached response in parts;
-	private ByteBuffer readBuffer = ByteBuffer.allocate(8); 
+	private ByteBuffer readBuffer = ByteBuffer.allocate(8); // !!!  important 
 	
 	private int replicaResponceCounter = 0;
 	private boolean replicaSuccess = true;
 	
-	private ClientRequestHandler receivedClientH = null;
+	private RequestData receivedClientH = null;
 		
 	private byte[] failedResponse;
 
@@ -45,7 +45,7 @@ public class AsyncClient implements Runnable{
 	 * @param setQueue
 	 * @throws IOException
 	 */
-	public AsyncClient(List<String> mcAddress, int primaryIndex, int replicate ,ArrayBlockingQueue<ClientRequestHandler> setQueue) throws IOException{
+	public AsyncClient(List<String> mcAddress, int primaryIndex, int replicate ,ArrayBlockingQueue<RequestData> setQueue) throws IOException{
 		this.selector = Selector.open();
 		this.setQueue = setQueue;
 		this.replicate = replicate;
@@ -154,12 +154,10 @@ public class AsyncClient implements Runnable{
 	    readBuffer.flip();
 	    readBuffer.get(buff);
 	    String readRes = new String(buff).trim().toLowerCase();
-//	    System.out.println("Server said: "+ readRes);
-//	    System.out.println(readBuffer.toString());
 	    
 	    if(this.replicate == 1){
 //	    	 synchronized (this.requestList) {
-	 	    	ClientRequestHandler clientHandler = this.requestList.poll();
+	 	    	RequestData clientHandler = this.requestList.poll();
 	 			clientHandler.server.send(clientHandler.socket, buff);
 //	 		}	
 	    }
@@ -176,7 +174,7 @@ public class AsyncClient implements Runnable{
     		// stored responce
 	    	if(replicaSuccess && replicaResponceCounter == this.replicate){
 //	    		synchronized (this.requestList) {
-		 	    	ClientRequestHandler clientHandler = this.requestList.poll();
+		 	    	RequestData clientHandler = this.requestList.poll();
 		 			clientHandler.server.send(clientHandler.socket, buff);
 //		 		}
 //	    		System.out.println("Replica SUCCESS!!!!!");
@@ -191,7 +189,7 @@ public class AsyncClient implements Runnable{
 	    		// from local requestList list
 	    		
 //	    		synchronized (this.requestList) {
-	    			ClientRequestHandler clientHandler = this.requestList.poll();
+	    			RequestData clientHandler = this.requestList.poll();
 		 			clientHandler.server.send(clientHandler.socket, failedResponse);
 //		 		}
 	    		System.out.println("Replica FAILED!!!!!");

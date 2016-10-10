@@ -24,7 +24,6 @@ public class Server extends Thread{
   
   private ByteBuffer echoBuffer = ByteBuffer.allocate(2024);
 
-
   
   public Server(String myIp, int myPort, List<String> mcAddresses,int numThreadsPTP,int writeToCount) throws IOException{
 	  this.PORT = myPort;
@@ -92,17 +91,15 @@ public class Server extends Thread{
 	  
 	  echoBuffer.clear();
 	  // Read the data
-      String clientInput = new String();
 	  SocketChannel sc = (SocketChannel) currentKey.channel();
       int code = 0;
-      byte b[];
+      byte[] buff;
       try{
     	  
     	  code = sc.read(echoBuffer);
-    	  b = new byte[echoBuffer.position()];
+    	  buff = new byte[echoBuffer.position()];
           echoBuffer.flip();
-          echoBuffer.get(b);
-          clientInput+=new String(b, "UTF-8");
+          echoBuffer.get(buff);
       }
       catch(IOException e){
     	  
@@ -118,8 +115,11 @@ public class Server extends Thread{
     	  return;
       }
       
-    	  currentKey.interestOps(0);
-		  this.middleware.processRequest(this, sc, b);
+
+	  currentKey.interestOps(0);
+	  RequestData forward_request = new RequestData(this, sc, ByteBuffer.wrap(buff));
+	  forward_request.set_request_receive_time();
+	  this.middleware.processRequest(forward_request);
   }
   
   /**

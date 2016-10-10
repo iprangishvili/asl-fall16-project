@@ -4,12 +4,12 @@ import java.util.concurrent.ThreadPoolExecutor;
 
 public class ManageQueue {
 	
-	public ArrayBlockingQueue<ClientRequestHandler> setQueue;
-	public ArrayBlockingQueue<ClientRequestHandler> getQueue;
+	public ArrayBlockingQueue<RequestData> setQueue;
+	public ArrayBlockingQueue<RequestData> getQueue;
 
 	public ManageQueue(int capacity, int getCapacity){
-		this.setQueue = new ArrayBlockingQueue<ClientRequestHandler>(capacity, true);
-		this.getQueue = new ArrayBlockingQueue<ClientRequestHandler>(getCapacity);
+		this.setQueue = new ArrayBlockingQueue<RequestData>(capacity, true);
+		this.getQueue = new ArrayBlockingQueue<RequestData>(getCapacity);
 	}
 
 }
