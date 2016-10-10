@@ -6,10 +6,15 @@ import java.nio.channels.SocketChannel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.util.*;
+import java.util.logging.FileHandler;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class Server extends Thread{
 
-  // parameters
+  private static final Logger LOGGER = Logger.getLogger("Middleware Logging Stats");
+  private static final int logging_frequency = 100;
   
   // Global Variables
   private Selector selector;
@@ -17,12 +22,18 @@ public class Server extends Thread{
   private Middleware middleware;
   
   private List<SocketChangeRequestInfo> pendingChanges = new LinkedList<SocketChangeRequestInfo>();
-  private Map<SocketChannel,ByteBuffer> pendingData = new HashMap<SocketChannel,ByteBuffer>();
+  private Map<SocketChannel,RequestData> pendingData = new HashMap<SocketChannel,RequestData>();
   
   private int PORT;
   private String hostAddress;
   
   private ByteBuffer echoBuffer = ByteBuffer.allocate(2024);
+  private byte[] buff;
+  
+  private int setCommandCounter = 0;
+  private int getCommandCounter = 0;
+  
+  private boolean enable_logging = true;
 
   
   public Server(String myIp, int myPort, List<String> mcAddresses,int numThreadsPTP,int writeToCount) throws IOException{
@@ -31,6 +42,9 @@ public class Server extends Thread{
 	  this.middleware = new Middleware(mcAddresses, numThreadsPTP, writeToCount);
 	  this.selector = initSelector();	 
 	  
+	  if(enable_logging){
+		  this.setLogger(); // set up logging config
+	  }
   }
   
   
@@ -93,13 +107,9 @@ public class Server extends Thread{
 	  // Read the data
 	  SocketChannel sc = (SocketChannel) currentKey.channel();
       int code = 0;
-      byte[] buff;
       try{
     	  
     	  code = sc.read(echoBuffer);
-    	  buff = new byte[echoBuffer.position()];
-          echoBuffer.flip();
-          echoBuffer.get(buff);
       }
       catch(IOException e){
     	  
@@ -109,17 +119,24 @@ public class Server extends Thread{
       }
       // on socket disconnect
       if (code == -1) {
+    	  System.out.println("shutting down socket");
     	  // Remote entity shut the socket down
     	  sc.close();
     	  currentKey.cancel();
     	  return;
       }
-      
+      buff = new byte[echoBuffer.position()];
+      echoBuffer.flip();
+      echoBuffer.get(buff, 0, code);
+//      System.out.println("read bytes: " + code + " bufferByte: " + ByteBuffer.wrap(buff) + " " + new String(buff));
 
-	  currentKey.interestOps(0);
+//	  System.out.println("out: " + buff.length + " " + buff.toString());
+//	  System.out.println(ByteBuffer.wrap(buff));
 	  RequestData forward_request = new RequestData(this, sc, ByteBuffer.wrap(buff));
 	  forward_request.set_request_receive_time();
 	  this.middleware.processRequest(forward_request);
+	  currentKey.interestOps(0);
+
   }
   
   /**
@@ -130,15 +147,15 @@ public class Server extends Thread{
    * @param data - data to send to memaslap (received from memcached server)
    * @throws IOException
    */
-  public void send(SocketChannel socket, byte[] data) throws IOException {
+  public void send(RequestData rdata) throws IOException {
 //	  System.out.println("Sending Data");
 	  
 		synchronized (this.pendingChanges) {
 
 			synchronized (this.pendingData) {
-				this.pendingChanges.add(new SocketChangeRequestInfo(socket, SocketChangeRequestInfo.CHANGEOPS, SelectionKey.OP_WRITE));
+				this.pendingChanges.add(new SocketChangeRequestInfo(rdata.socket, SocketChangeRequestInfo.CHANGEOPS, SelectionKey.OP_WRITE));
 				
-				this.pendingData.put(socket, ByteBuffer.wrap(data));
+				this.pendingData.put(rdata.socket, rdata);
 				this.selector.wakeup();
 				
 				
@@ -158,10 +175,46 @@ public class Server extends Thread{
 		SocketChannel socketChannel = (SocketChannel) key.channel();
 
 		synchronized (this.pendingData) {
-			ByteBuffer buf = this.pendingData.get(socketChannel);
-			socketChannel.write(buf);
+			this.pendingData.get(socketChannel).calculate_T_mw();
+			if(enable_logging){
+				writeToLog(this.pendingData.get(socketChannel));
+			}
+			// log response here
+			socketChannel.write(this.pendingData.get(socketChannel).getResponse());
 			key.interestOps(SelectionKey.OP_READ);
 		}
+	}
+  
+  /**
+	 * set logging configuration
+	 * @throws SecurityException
+	 * @throws IOException
+	 */
+	private void setLogger() throws SecurityException, IOException{
+		Date date = new Date(); 
+		Handler log_fileHandler = new FileHandler("logs/Log_data:" + date.toString() + ".csv");
+		LOGGER.setLevel(Level.INFO);
+		log_fileHandler.setFormatter(new MyCustomFormater());
+		LOGGER.addHandler(log_fileHandler);
+		LOGGER.setUseParentHandlers(false);
+//		LOGGER.info("Request Type, T_mw, T_queue, T_server, F_success");
+	}
+  
+  private void writeToLog(RequestData rdata){
+	  String logMsg = rdata.requestType + "," + rdata.get_T_mw() + "," + rdata.get_T_queue() + "," + rdata.get_T_server() + "," + rdata.get_success_flag();
+
+	  if(rdata.requestType.equals("GET")){
+		  getCommandCounter++;
+		  if(getCommandCounter % logging_frequency == 0){
+			  LOGGER.info(logMsg);
+		  }
+	  }
+	  else if(rdata.requestType.equals("SET")){
+		  setCommandCounter++;
+		  if(setCommandCounter % logging_frequency == 0){
+			  LOGGER.info(logMsg);
+		  }
+	  }		  
 	}
 
   

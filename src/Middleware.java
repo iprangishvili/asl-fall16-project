@@ -25,10 +25,7 @@ import java.util.logging.SimpleFormatter;
 
 
 public class Middleware{
-	
-	// Create Logging instance
-    private static final Logger LOGGER = Logger.getLogger("Middleware Logging Stats");
-	
+		
 	// locally specified variables
 	private int setQueueSize = 1000; // queue size for set
 	private int getQueueSize = 1000; // queue size for get
@@ -48,10 +45,7 @@ public class Middleware{
 	 * @throws NoSuchAlgorithmException 
 	 */
 	public Middleware(List<String> mcAddresses, int numThreadsPTP, int writeToCount) throws IOException{
-		
-		// set logging 
-		setLogger();
-		
+				
 		this.mcAddresses = mcAddresses;
 		this.numThreadsPTP = numThreadsPTP;
 		this.numReplication = writeToCount;
@@ -65,21 +59,6 @@ public class Middleware{
 		// create an internal structure of middleware
 		setupInternalStructure();
 		
-	}
-	
-	/**
-	 * set logging configuration
-	 * @throws SecurityException
-	 * @throws IOException
-	 */
-	private void setLogger() throws SecurityException, IOException{
-		Date date = new Date(); 
-		Handler log_fileHandler = new FileHandler("Log_data:" + date.toString() + ".csv");
-		LOGGER.setLevel(Level.INFO);
-		log_fileHandler.setFormatter(new MyCustomFormater());
-		LOGGER.addHandler(log_fileHandler);
-		LOGGER.setUseParentHandlers(false);
-//		LOGGER.info("Request Type, T_mw, T_queue, T_server, F_success");
 	}
 	
 	/**
@@ -100,7 +79,7 @@ public class Middleware{
 			
 			// Sync client threads
 			for(int j=0; j<this.numThreadsPTP; j++){
-				new Thread(new SyncClient(tempQueue.getQueue, this.mcAddresses.get(i), LOGGER)).start();
+				new Thread(new SyncClient(tempQueue.getQueue, this.mcAddresses.get(i))).start();
 			}
 			
 //			AsyncClient tempClient = new AsyncClient(curr_server, curr_port, tempQueue.setQueue);
@@ -134,17 +113,19 @@ public class Middleware{
 				String selectedServer = this.consistentHash.get(inputStr[1].trim());
 				
 				// set the time of enqueue
-				clientRequestForward.set_time_enqueue();
+				clientRequestForward.requestType = "GET"; // logging info
+				clientRequestForward.set_time_enqueue(); // logging info
 				this.delegateToQueue.get(selectedServer).getQueue.put(clientRequestForward);
 			}
-			else if(inputStr[0].equals("set")){				
+			else if(inputStr[0].equals("set")){	
+				clientRequestForward.requestType = "SET"; // logging info
 				// check for replication
 				if(this.numReplication == 1){
 					
 					String selectedServer = this.consistentHash.get(inputStr[1].trim());
 					
 					// set the time of enqueue
-					clientRequestForward.set_time_enqueue();
+					clientRequestForward.set_time_enqueue(); // logging info
 					this.delegateToQueue.get(selectedServer).setQueue.put(clientRequestForward);
 				}
 				else if(this.numReplication > 1){

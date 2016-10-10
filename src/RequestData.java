@@ -9,6 +9,9 @@ public class RequestData {
 	public SocketChannel socket;
 	public ByteBuffer data;
 	public ArrayList<String> replicateMcAddress;
+	public String requestType = "";
+	
+	private ByteBuffer response; // response from memcached
 	
 	// logging information
 	private long time_received_request; // time request was received
@@ -25,6 +28,15 @@ public class RequestData {
 		this.socket = socket;
 		this.data = data;
 	}
+	
+	public void setResponse(ByteBuffer res){
+		this.response = res;
+	}
+	
+	public ByteBuffer getResponse(){
+		return this.response;
+	}
+	
 	
 	/**
 	 * set replication memcached addresses
