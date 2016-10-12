@@ -19,10 +19,11 @@ import java.util.logging.Logger;
 
 public class AsyncClient implements Runnable{
 
-	private Selector selector;
+	private Selector selector; 
 	private int replicate; // number of replications
 	
 	private ArrayBlockingQueue<RequestData> setQueue;
+	
 	// key - socket channel associated with memaslap client 
 	// value - asyncronious client socket channel to communicate to memcached
 	// each memaslap client gets one async socket channel
@@ -77,6 +78,11 @@ public class AsyncClient implements Runnable{
 		return curr_channel;
 	}
 	
+	/**
+	 * initiate connection to secondary memcached servers (replication servers)
+	 * @param asyncHandler
+	 * @throws IOException
+	 */
 	private void initiateSecondaryConnection(AsyncClientSocketChannelHanlder asyncHandler) throws IOException{
 	
 		for(int i=0; i< this.mcAddress.size(); i++){
@@ -89,7 +95,10 @@ public class AsyncClient implements Runnable{
 		
 	}
 	
-	
+	/**
+	 * finish socket channel connection
+	 * @param key
+	 */
 	private void finishConnect(SelectionKey key){
 		SocketChannel socketChannel = (SocketChannel) key.channel();
 		
@@ -108,7 +117,9 @@ public class AsyncClient implements Runnable{
 	
 	}
 		
-	 
+	/**
+	 * close socket channel
+	 */
 	private void close(){
 	    try {
 	        selector.close();
@@ -120,10 +131,10 @@ public class AsyncClient implements Runnable{
 	
 	/**
 	 * read data sent from memcached server, 
-	 * get from requestList information (server instance,
+	 * get from key attachment AsyncClientSocketChannelHanlder with information (server instance,
 	 * socket channel), send the read data to memaslap using that 
-	 * information. At last delete socket channel key from requestList 
-	 * map, close the socket channel and cancel the key
+	 * information. 
+	 * if replication take validation procedures
 	 * @param key
 	 * @throws IOException
 	 */
@@ -173,7 +184,7 @@ public class AsyncClient implements Runnable{
 	}
 	
 	/**
-	 * get data from requestList based on specific socket channel
+	 * get data from key attachment
 	 * write data to memcached server and
 	 * register selection key with READ action
 	 * @param key

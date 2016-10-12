@@ -167,6 +167,7 @@ public class Server extends Thread{
 	/**
 	 * write to client (memaslap)
 	 * and register selection key action to read
+	 * (logs request data stats if enabled)
 	 * @param key - selection key with write action
 	 * @throws IOException
 	 */
@@ -176,30 +177,36 @@ public class Server extends Thread{
 
 		synchronized (this.pendingData) {
 			this.pendingData.get(socketChannel).calculate_T_mw();
+			
+			// logging data
 			if(enable_logging){
 				writeToLog(this.pendingData.get(socketChannel));
 			}
-			// log response here
+
 			socketChannel.write(this.pendingData.get(socketChannel).getResponse());
 			key.interestOps(SelectionKey.OP_READ);
 		}
 	}
   
-  /**
+	 /**
 	 * set logging configuration
 	 * @throws SecurityException
 	 * @throws IOException
 	 */
-	private void setLogger() throws SecurityException, IOException{
-		Date date = new Date(); 
-		Handler log_fileHandler = new FileHandler("logs/Log_data:" + date.toString() + ".csv");
-		LOGGER.setLevel(Level.INFO);
-		log_fileHandler.setFormatter(new MyCustomFormater());
-		LOGGER.addHandler(log_fileHandler);
-		LOGGER.setUseParentHandlers(false);
-//		LOGGER.info("Request Type, T_mw, T_queue, T_server, F_success");
-	}
+  private void setLogger() throws SecurityException, IOException{
+	Date date = new Date(); 
+	Handler log_fileHandler = new FileHandler("logs/Log_data:" + date.toString() + ".csv");
+	LOGGER.setLevel(Level.INFO);
+	log_fileHandler.setFormatter(new MyCustomFormater());
+	LOGGER.addHandler(log_fileHandler);
+	LOGGER.setUseParentHandlers(false);
+  }
   
+
+  /**
+   * write request data information to log file
+   * @param rdata
+   */
   private void writeToLog(RequestData rdata){
 	  String logMsg = rdata.requestType + "," + rdata.get_T_mw() + "," + rdata.get_T_queue() + "," + rdata.get_T_server() + "," + rdata.get_success_flag();
 

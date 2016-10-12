@@ -1,12 +1,8 @@
 import java.io.*;
 import java.net.*;
 import java.nio.ByteBuffer;
-import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
-import java.util.LinkedList;
-import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
-import java.util.logging.Logger;
 
 public class SyncClient implements Runnable{
 	
@@ -53,7 +49,8 @@ public class SyncClient implements Runnable{
 					buff = new byte[readBuff.position()];
 					readBuff.flip();
 					readBuff.get(buff);
-					// logging
+					
+					// logging data
 					if(!new String(buff).trim().toLowerCase().equals("end")){
 						clientHandler.set_success_flag(true);
 					}
@@ -62,7 +59,6 @@ public class SyncClient implements Runnable{
 						clientHandler.set_success_flag(false);
 					}
 					
-//					writeToLog(clientHandler);
 					clientHandler.setResponse(ByteBuffer.wrap(buff));
 					clientHandler.server.send(clientHandler);				
 				}

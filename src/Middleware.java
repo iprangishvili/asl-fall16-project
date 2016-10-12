@@ -1,27 +1,9 @@
 import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.nio.channels.SocketChannel;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
-import java.util.Calendar;
-import java.util.Collection;
-import java.util.Date;
-import java.util.Iterator;
-import java.util.LinkedList;
 import java.util.List;
-import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.RejectedExecutionHandler;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
-import java.util.logging.FileHandler;
-import java.util.logging.Formatter;
-import java.util.logging.Handler;
-import java.util.logging.Level;
-import java.util.logging.Logger;
-import java.util.logging.SimpleFormatter;
+
 
 
 public class Middleware{
@@ -50,10 +32,6 @@ public class Middleware{
 		this.numThreadsPTP = numThreadsPTP;
 		this.numReplication = writeToCount;
 		
-		// create hash key for servers
-		// replicate virtual nodes for uniform distribution of key space
-		// TODO: explore uniform distribution of key space more 
-		// look into if current strategy works
 		this.consistentHash = new ConsistentHash(this.numVirtualNodes, this.mcAddresses);
 		
 		// create an internal structure of middleware
@@ -62,8 +40,9 @@ public class Middleware{
 	}
 	
 	/**
-	 * initialize queue for set and ThreadPoolExecutor for get
-	 * for each server; 
+	 * initialize queue for set and get for each server; 
+	 * initialize thread pool for get
+	 * start thread for asynchronious client
 	 * save the queue in hashMap based on the server IP:Port key
 	 * @throws IOException 
 	 * 
@@ -82,7 +61,6 @@ public class Middleware{
 				new Thread(new SyncClient(tempQueue.getQueue, this.mcAddresses.get(i))).start();
 			}
 			
-//			AsyncClient tempClient = new AsyncClient(curr_server, curr_port, tempQueue.setQueue);
 			new Thread(new AsyncClient(this.mcAddresses, i, this.numReplication ,tempQueue.setQueue), this.mcAddresses.get(i)).start();
 			this.delegateToQueue.put(this.mcAddresses.get(i), tempQueue);
 
@@ -108,7 +86,7 @@ public class Middleware{
 		if(inputStr.length >= 2){
 			
 			// add request to relevant queue
-			if(inputStr[0].equals("get")){
+			if(inputStr[0].trim().equals("get")){
 				// get the memcached server address to which the request key belongs
 				String selectedServer = this.consistentHash.get(inputStr[1].trim());
 				
@@ -117,7 +95,7 @@ public class Middleware{
 				clientRequestForward.set_time_enqueue(); // logging info
 				this.delegateToQueue.get(selectedServer).getQueue.put(clientRequestForward);
 			}
-			else if(inputStr[0].equals("set")){	
+			else if(inputStr[0].trim().equals("set")){	
 				clientRequestForward.requestType = "SET"; // logging info
 				// check for replication
 				if(this.numReplication == 1){

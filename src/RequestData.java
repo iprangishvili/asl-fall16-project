@@ -29,14 +29,21 @@ public class RequestData {
 		this.data = data;
 	}
 	
+	/**
+	 * set response - received from memcached server
+	 * @param res
+	 */
 	public void setResponse(ByteBuffer res){
 		this.response = res;
 	}
 	
+	/**
+	 * get response - received from memcached server
+	 * @return
+	 */
 	public ByteBuffer getResponse(){
 		return this.response;
 	}
-	
 	
 	/**
 	 * set replication memcached addresses
@@ -124,10 +131,18 @@ public class RequestData {
 		return this.T_server;
 	}
 	
+	/** 
+	 * set flag whether request was successfully executed
+	 * @param flag
+	 */
 	public void set_success_flag(boolean flag){
 		this.success_flag = flag;
 	}
 	
+	/**
+	 * get request success flag
+	 * @return
+	 */
 	public boolean get_success_flag(){
 		return this.success_flag;
 	}
