@@ -95,8 +95,8 @@ public class Middleware{
 				clientRequestForward.set_time_enqueue(); // logging info
 				this.delegateToQueue.get(selectedServer).getQueue.put(clientRequestForward);
 			}
-			else if(inputStr[0].trim().equals("set")){	
-				clientRequestForward.requestType = "SET"; // logging info
+			else if(inputStr[0].trim().equals("set") || inputStr[0].trim().equals("delete")){
+				clientRequestForward.requestType = inputStr[0].trim().toUpperCase(); // logging info
 				// check for replication
 				if(this.numReplication == 1){
 					
@@ -114,12 +114,6 @@ public class Middleware{
 					clientRequestForward.set_time_enqueue();
 					this.delegateToQueue.get(selectedServers.get(0)).setQueue.put(clientRequestForward);
 				}
-			}
-			else if(inputStr[0].trim().equals("delete")){
-				clientRequestForward.requestType = "DELETE";
-				String selectedServer = this.consistentHash.get(inputStr[1].trim());
-				// use set async client for delete operation
-				this.delegateToQueue.get(selectedServer).setQueue.put(clientRequestForward);
 			}
 		}
 		
