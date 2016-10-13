@@ -184,24 +184,26 @@ public class AsyncClient implements Runnable{
 //		System.out.println("length: " + responses.length + "read: " + res);
 		for(int i=0; i<responses.length; i++){
 			RequestData clientHandler = requestList.poll();
-			if(clientHandler != null){
+//			if(clientHandler != null){
 				clientHandler.calculate_T_server(); // logging data
-				if(responses[i].trim().toLowerCase().equals("stored")){
-	//				System.out.println("success: " + responses[i]);
-					clientHandler.setResponse(ByteBuffer.wrap((responses[i] + "\n").getBytes()));
-					clientHandler.set_success_flag(true);
+				
+				// check for delete action 
+				if(clientHandler.requestType.equals("DELETE")){
+					// if delete operation failed
+					if(!responses[i].trim().toLowerCase().equals("deleted")){
+						clientHandler.set_success_flag(false);
+					}
 				}
-				else{
+				else if(!responses[i].trim().toLowerCase().equals("stored")){ // set action failed
 					System.out.println("fail: " + responses[i]);
-	
-					clientHandler.setResponse(ByteBuffer.wrap((responses[i] + "\n").getBytes()));
 					clientHandler.set_success_flag(false);
 				}
+				clientHandler.setResponse(ByteBuffer.wrap((responses[i] + "\n").getBytes()));
 				clientHandler.server.send(clientHandler);
-			}
-			else{
-				System.out.println("EVEN WITHOT REPLICATION: " + " index: " + i);
-			}
+//			}
+//			else{
+//				System.out.println("EVEN WITHOT REPLICATION: " + " index: " + i);
+//			}
 		}
 	}
 	
@@ -210,37 +212,48 @@ public class AsyncClient implements Runnable{
 //		System.out.println("List size: " + this.requestList.size());
 		int requestListIndex = requestTracker.get(ch);
 		for(int i=0; i<responses.length; i++){
-//			requestListIndex = requestTracker.get(ch);
-			if(requestListIndex < requestList.size()){
-			
+//			if(requestListIndex < requestList.size()){
 				RequestData clientHandler = requestList.get(requestListIndex);
-				requestListIndex++;	
-				clientHandler.incrementReplicaCounter();
-				if(responses[i].trim().toLowerCase().equals("stored") && clientHandler.get_success_flag()){
-//					System.out.println("success: " + responses[i]);
+				// check if action is delete
+				if(clientHandler.requestType.equals("DELETE")){
+					requestList.remove(requestListIndex);
+					clientHandler.calculate_T_server();
 					clientHandler.setResponse(ByteBuffer.wrap((responses[i] + "\n").getBytes()));
+					// check if delete operation succeded
+					if(!responses[i].trim().toLowerCase().equals("deleted")){
+						clientHandler.set_success_flag(false);
+					}
+					clientHandler.server.send(clientHandler);
 				}
-				else if(!responses[i].trim().toLowerCase().equals("stored")){
-					System.out.println("fail: " + responses[i]);
-					clientHandler.setResponse(ByteBuffer.wrap((responses[i] + "\n").getBytes()));
-					clientHandler.set_success_flag(false);
+				else{
+					requestListIndex++;	
+					clientHandler.incrementReplicaCounter();
+					if(responses[i].trim().toLowerCase().equals("stored") && clientHandler.get_success_flag()){
+	//					System.out.println("success: " + responses[i]);
+						clientHandler.setResponse(ByteBuffer.wrap((responses[i] + "\n").getBytes()));
+					}
+					else if(!responses[i].trim().toLowerCase().equals("stored")){
+						System.out.println("fail: " + responses[i]);
+						clientHandler.setResponse(ByteBuffer.wrap((responses[i] + "\n").getBytes()));
+						clientHandler.set_success_flag(false);
+					}
+					
+					if(clientHandler.getReplicaCounter() == this.replicate){	
+						requestTracker.put(ch, requestListIndex);
+						decrementCounter();
+						requestListIndex = requestTracker.get(ch);
+						clientHandler.calculate_T_server(); // logging data;
+						clientHandler.server.send(requestList.poll());
+					}
 				}
-				
-				if(clientHandler.getReplicaCounter() == this.replicate){	
-					requestTracker.put(ch, requestListIndex);
-					decrementCounter();
-					requestListIndex = requestTracker.get(ch);
-					clientHandler.calculate_T_server(); // logging data;
-					clientHandler.server.send(requestList.poll());
-				}
-			}
-			else{
-				System.out.println("Thread name: " + Thread.currentThread().getName());
-				System.out.println("whole: " + "length: " + responses.length);
-				System.out.println("first: " + responses[0]);
-				System.out.println("!!!!!!: " + requestListIndex + " " + i + " " + this.requestList.size());
-			
-			}
+//			}
+//			else{
+//				System.out.println("Thread name: " + Thread.currentThread().getName());
+//				System.out.println("whole: " + "length: " + responses.length);
+//				System.out.println("first: " + responses[0]);
+//				System.out.println("!!!!!!: " + requestListIndex + " " + i + " " + this.requestList.size());
+//			
+//			}
 		}
 		requestTracker.put(ch, requestListIndex);
 	}
@@ -264,7 +277,8 @@ public class AsyncClient implements Runnable{
 	        		this.primarySocketChannel.keyFor(this.selector).interestOps(SelectionKey.OP_WRITE);
 
 	        		// replicate to rest of the memcached servers
-	        		if(this.replicate > 1){
+	        		// make sure the request is not delete action
+	        		if(this.replicate > 1 && !receivedClientH.requestType.equals("DELETE")){
 	        			for(int i = 1; i<receivedClientH.replicateMcAddress.size(); i++){
 	        				this.secondaryConnections.get(receivedClientH.replicateMcAddress.get(i)).keyFor(this.selector).interestOps(SelectionKey.OP_WRITE);
 	        			}

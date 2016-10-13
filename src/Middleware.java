@@ -115,6 +115,12 @@ public class Middleware{
 					this.delegateToQueue.get(selectedServers.get(0)).setQueue.put(clientRequestForward);
 				}
 			}
+			else if(inputStr[0].trim().equals("delete")){
+				clientRequestForward.requestType = "DELETE";
+				String selectedServer = this.consistentHash.get(inputStr[1].trim());
+				// use set async client for delete operation
+				this.delegateToQueue.get(selectedServer).setQueue.put(clientRequestForward);
+			}
 		}
 		
 	}
