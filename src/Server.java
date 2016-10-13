@@ -33,7 +33,7 @@ public class Server extends Thread{
   private int setCommandCounter = 0;
   private int getCommandCounter = 0;
   
-  private boolean enable_logging = true;
+  private boolean enable_logging = false;
 
   
   public Server(String myIp, int myPort, List<String> mcAddresses,int numThreadsPTP,int writeToCount) throws IOException{
@@ -150,13 +150,13 @@ public class Server extends Thread{
   public void send(RequestData rdata) throws IOException {
 //	  System.out.println("Sending Data");
 	  
-		synchronized (this.pendingChanges) {
+		synchronized (pendingChanges) {
 
-			synchronized (this.pendingData) {
-				this.pendingChanges.add(new SocketChangeRequestInfo(rdata.socket, SocketChangeRequestInfo.CHANGEOPS, SelectionKey.OP_WRITE));
+			synchronized (pendingData) {
+				pendingChanges.add(new SocketChangeRequestInfo(rdata.socket, SocketChangeRequestInfo.CHANGEOPS, SelectionKey.OP_WRITE));
 				
-				this.pendingData.put(rdata.socket, rdata);
-				this.selector.wakeup();
+				pendingData.put(rdata.socket, rdata);
+				selector.wakeup();
 				
 				
 			}
@@ -182,7 +182,6 @@ public class Server extends Thread{
 			if(enable_logging){
 				writeToLog(this.pendingData.get(socketChannel));
 			}
-
 			socketChannel.write(this.pendingData.get(socketChannel).getResponse());
 			key.interestOps(SelectionKey.OP_READ);
 		}

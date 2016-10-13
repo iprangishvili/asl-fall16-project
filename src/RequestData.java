@@ -1,3 +1,4 @@
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 import java.util.ArrayList;
@@ -12,11 +13,13 @@ public class RequestData {
 	public String requestType = "";
 	
 	private ByteBuffer response; // response from memcached
+	private int replicationCounter;
+	
 	
 	// logging information
-	private long time_received_request; // time request was received
-	private long time_of_enqueue; // time request of put in queue
-	private long time_request_server_send; // time request was send to server
+	private long time_received_request = 0; // time request was received
+	private long time_of_enqueue = 0; // time request of put in queue
+	private long time_request_server_send = 0; // time request was send to server
 	private boolean success_flag; // whether request succeded
 	
 	private long T_mw;
@@ -27,6 +30,9 @@ public class RequestData {
 		this.server = server;
 		this.socket = socket;
 		this.data = data;
+		
+		this.replicationCounter = 0;
+		this.success_flag = true;
 	}
 	
 	/**
@@ -71,7 +77,10 @@ public class RequestData {
 	 * set time request was send to server
 	 */
 	public void set_time_server_send(){
-		this.time_request_server_send = System.nanoTime();
+		// prevent from resetting the time
+		if(this.time_request_server_send == 0){
+			this.time_request_server_send = System.nanoTime();
+		}
 	}
 	
 	/**
@@ -145,5 +154,13 @@ public class RequestData {
 	 */
 	public boolean get_success_flag(){
 		return this.success_flag;
+	}
+	
+	public void incrementReplicaCounter() throws IOException{
+		this.replicationCounter++;
+	}
+	
+	public int getReplicaCounter(){
+		return this.replicationCounter;
 	}
 }

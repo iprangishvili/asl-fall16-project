@@ -107,7 +107,7 @@ public class Middleware{
 					this.delegateToQueue.get(selectedServer).setQueue.put(clientRequestForward);
 				}
 				else if(this.numReplication > 1){
-					ArrayList<String> selectedServers = new ArrayList<String>(this.consistentHash.getWithReplica(inputStr[1].trim(), this.numReplication));
+					ArrayList<String> selectedServers = this.consistentHash.getWithReplica(inputStr[1].trim(), this.numReplication);
 					// set replication addresses
 					clientRequestForward.setReplicaAddress(selectedServers);
 					// set the time of enqueue

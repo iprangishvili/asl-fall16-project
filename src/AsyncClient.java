@@ -4,40 +4,32 @@ import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.logging.Logger;
 
 
 
 public class AsyncClient implements Runnable{
 
-	private Selector selector; 
-	private int replicate; // number of replications
+	private Selector selector;
+	private int replicate;
 	
+	private LinkedList<RequestData> requestList = new LinkedList<RequestData>();
 	private ArrayBlockingQueue<RequestData> setQueue;
 	
-	// key - socket channel associated with memaslap client 
-	// value - asyncronious client socket channel to communicate to memcached
-	// each memaslap client gets one async socket channel
-	private Map<SocketChannel, AsyncClientSocketChannelHanlder> clientSockets;
+	private SocketChannel primarySocketChannel;
+	private Map<String, SocketChannel> secondaryConnections;
 	
-	private List<String> mcAddress; // list of memcached server IP:PORT
-	private int primaryIndex; // index of primary memcached server in mcAddress list
+	private Map<SocketChannel, Integer> requestTracker;
 	
 	// force socket channel to read memcached response in parts;
-	private ByteBuffer readBuffer = ByteBuffer.allocate(2024); 
-	private byte[] buff;
-	
+	private ByteBuffer readBuffer = ByteBuffer.allocate(1024); // !!!  important 
 	private RequestData receivedClientH = null;
-	private AsyncClientSocketChannelHanlder asyncSocketChannelHandler;
 		
 	/**
 	 * 
@@ -47,14 +39,25 @@ public class AsyncClient implements Runnable{
 	 * @param setQueue
 	 * @throws IOException
 	 */
-	public AsyncClient(List<String> mcAddress, int primaryIndex, int replicate, ArrayBlockingQueue<RequestData> setQueue) throws IOException{
+	public AsyncClient(List<String> mcAddress, int primaryIndex, int replicate ,ArrayBlockingQueue<RequestData> setQueue) throws IOException{
 		this.selector = Selector.open();
 		this.setQueue = setQueue;
 		this.replicate = replicate;
-		this.mcAddress = mcAddress;
-		this.primaryIndex = primaryIndex;
+		System.out.println("replication #: " + this.replicate);
+				
+		String curr_server = mcAddress.get(primaryIndex).split(":")[0];
+		int curr_port = Integer.parseInt(mcAddress.get(primaryIndex).split(":")[1]);
+				
+		// create primary socket connections
+		System.out.println("Created primary server connection: " + mcAddress.get(primaryIndex));
+		this.primarySocketChannel = initiateConnection(curr_server, curr_port);
 		
-		this.clientSockets = new HashMap<SocketChannel, AsyncClientSocketChannelHanlder>();
+		// if replication, open connection to rest of memcached servers
+		if(replicate > 1){
+			requestTracker = new HashMap<SocketChannel, Integer>();
+			requestTracker.put(this.primarySocketChannel, 0);
+			initiateSecondaryConnection(mcAddress, primaryIndex);
+		}
 	}
 	
 	/**
@@ -62,43 +65,34 @@ public class AsyncClient implements Runnable{
 	 * open socket channel
 	 * @throws IOException
 	 */
-	private SocketChannel initiateConnection(String memServer) throws IOException{
-		String curr_server = memServer.split(":")[0];
-		int curr_port = Integer.parseInt(memServer.split(":")[1]);
-		
+	private SocketChannel initiateConnection(String memServer, int memPort) throws IOException{
 		SocketChannel curr_channel = SocketChannel.open();
 		curr_channel.configureBlocking(false);
 	
 		// Kick off connection establishment
-		curr_channel.connect(new InetSocketAddress(curr_server, curr_port));
+		curr_channel.connect(new InetSocketAddress(memServer, memPort));
 		
 		curr_channel.register(this.selector, SelectionKey.OP_CONNECT);
-		System.out.println("Connection initiated");
-
 		return curr_channel;
 	}
 	
-	/**
-	 * initiate connection to secondary memcached servers (replication servers)
-	 * @param asyncHandler
-	 * @throws IOException
-	 */
-	private void initiateSecondaryConnection(AsyncClientSocketChannelHanlder asyncHandler) throws IOException{
-	
-		for(int i=0; i< this.mcAddress.size(); i++){
-			if(i != this.primaryIndex){
-				
-				asyncHandler.addSecondaryChannel(mcAddress.get(i), initiateConnection(this.mcAddress.get(i)), this.selector);
-				System.out.println("Created connection to server: " + this.mcAddress.get(i));
+	private void initiateSecondaryConnection(List<String> mcAddress, int primaryIndex) throws IOException{
+		this.secondaryConnections = new HashMap<String, SocketChannel>();
+		String curr_server;
+		int curr_port;
+		for(int i=0; i< mcAddress.size(); i++){
+			if(i != primaryIndex){
+				curr_server = mcAddress.get(i).split(":")[0];
+				curr_port = Integer.parseInt(mcAddress.get(i).split(":")[1]);
+				this.secondaryConnections.put(mcAddress.get(i),initiateConnection(curr_server, curr_port));
+				requestTracker.put(this.secondaryConnections.get(mcAddress.get(i)), 0);
+				System.out.println("Created connection to server: " + mcAddress.get(i));
 			}
 		}
 		
 	}
 	
-	/**
-	 * finish socket channel connection
-	 * @param key
-	 */
+	
 	private void finishConnect(SelectionKey key){
 		SocketChannel socketChannel = (SocketChannel) key.channel();
 		
@@ -106,7 +100,6 @@ public class AsyncClient implements Runnable{
 		// this will raise an IOException.
 		try {
 			socketChannel.finishConnect();
-			key.interestOps(SelectionKey.OP_WRITE);
 		} catch (IOException e) {
 
 			// Cancel the channel's registration with our selector
@@ -117,9 +110,7 @@ public class AsyncClient implements Runnable{
 	
 	}
 		
-	/**
-	 * close socket channel
-	 */
+	 
 	private void close(){
 	    try {
 	        selector.close();
@@ -131,16 +122,16 @@ public class AsyncClient implements Runnable{
 	
 	/**
 	 * read data sent from memcached server, 
-	 * get from key attachment AsyncClientSocketChannelHanlder with information (server instance,
+	 * get from requestList information (server instance,
 	 * socket channel), send the read data to memaslap using that 
-	 * information. 
-	 * if replication take validation procedures
+	 * information. At last delete socket channel key from requestList 
+	 * map, close the socket channel and cancel the key
 	 * @param key
 	 * @throws IOException
 	 */
 	private void read (SelectionKey key) throws IOException {
 	    SocketChannel channel = (SocketChannel) key.channel();
-	    readBuffer.clear();
+	    readBuffer.clear();		
 	    int length;
 	    try{
 	    	length = channel.read(readBuffer);
@@ -156,51 +147,111 @@ public class AsyncClient implements Runnable{
 	        key.cancel();
 	        return;
 	    }	    
-	    // convert ByteBuffer to String
-	    buff = new byte[readBuffer.position()];
+	    // convert ByteBuffer to byte array
+	    byte[] buff = new byte[readBuffer.position()];
 	    readBuffer.flip();
-	    readBuffer.get(buff, 0, length);
-
+	    readBuffer.get(buff);
 	    
-//	    System.out.println("Server said: " + readRes + " " + length);
-	    AsyncClientSocketChannelHanlder tempClientHandler = (AsyncClientSocketChannelHanlder) key.attachment();
 	    if(this.replicate == 1){
-	    	tempClientHandler.getRequestData().calculate_T_server(); // logging info
-	    	// logging info
-	    	if(new String(buff).trim().toLowerCase().equals("stored")){
-	    		tempClientHandler.getRequestData().set_success_flag(true);
-	    	}
-	    	else{
-	    		tempClientHandler.getRequestData().set_success_flag(false);
-	    	}
-	    	tempClientHandler.getRequestData().setResponse(ByteBuffer.wrap(buff));
-	    	tempClientHandler.getRequestData().server.send(tempClientHandler.getRequestData());
+	 		handleMultipleResponse(new String(buff).split("\n"));
 	    }
 	    else if(this.replicate > 1){
-	    	tempClientHandler.dealWithReplication(buff);
+	    	handleMultipleResponseWithReplica(new String(buff).split("\n"), channel);
 	    }
-	    
-	    key.interestOps(0);
+//	    key.interestOps(0);
 	}
 	
 	/**
-	 * get data from key attachment
+	 * get data from requestList based on specific socket channel
 	 * write data to memcached server and
 	 * register selection key with READ action
 	 * @param key
 	 * @throws IOException
 	 */
 	private void write(SelectionKey key) throws IOException {
-//		System.out.println("in write");
+		
 		SocketChannel socketChannel = (SocketChannel) key.channel();
+		
+		requestList.peekLast().set_time_server_send(); // logging data TODO: adjust checking for the case of replication for logging this info
+		socketChannel.write(requestList.peekLast().data);
+		requestList.peekLast().data.rewind();
+		key.interestOps(SelectionKey.OP_READ);			
 
-		AsyncClientSocketChannelHanlder tempcleintSocket = (AsyncClientSocketChannelHanlder) key.attachment();
-		tempcleintSocket.getRequestData().set_time_server_send();
-		
-		socketChannel.write(tempcleintSocket.getRequestData().data);
-		tempcleintSocket.getRequestData().data.rewind();
-		key.interestOps(SelectionKey.OP_READ);	
-		
+	}
+	
+	private void handleMultipleResponse(String[] responses) throws IOException{
+//		String responses[] = res.split("\n");
+//		System.out.println("length: " + responses.length + "read: " + res);
+		for(int i=0; i<responses.length; i++){
+			RequestData clientHandler = requestList.poll();
+			if(clientHandler != null){
+				clientHandler.calculate_T_server(); // logging data
+				if(responses[i].trim().toLowerCase().equals("stored")){
+	//				System.out.println("success: " + responses[i]);
+					clientHandler.setResponse(ByteBuffer.wrap((responses[i] + "\n").getBytes()));
+					clientHandler.set_success_flag(true);
+				}
+				else{
+					System.out.println("fail: " + responses[i]);
+	
+					clientHandler.setResponse(ByteBuffer.wrap((responses[i] + "\n").getBytes()));
+					clientHandler.set_success_flag(false);
+				}
+				clientHandler.server.send(clientHandler);
+			}
+			else{
+				System.out.println("EVEN WITHOT REPLICATION: " + " index: " + i);
+			}
+		}
+	}
+	
+	private void handleMultipleResponseWithReplica(String[] responses, SocketChannel ch) throws IOException{
+//		String responses[] = res.split("\n");
+//		System.out.println("List size: " + this.requestList.size());
+		int requestListIndex = requestTracker.get(ch);
+		for(int i=0; i<responses.length; i++){
+//			requestListIndex = requestTracker.get(ch);
+			if(requestListIndex < requestList.size()){
+			
+				RequestData clientHandler = requestList.get(requestListIndex);
+				requestListIndex++;	
+				clientHandler.incrementReplicaCounter();
+				if(responses[i].trim().toLowerCase().equals("stored") && clientHandler.get_success_flag()){
+//					System.out.println("success: " + responses[i]);
+					clientHandler.setResponse(ByteBuffer.wrap((responses[i] + "\n").getBytes()));
+				}
+				else if(!responses[i].trim().toLowerCase().equals("stored")){
+					System.out.println("fail: " + responses[i]);
+					clientHandler.setResponse(ByteBuffer.wrap((responses[i] + "\n").getBytes()));
+					clientHandler.set_success_flag(false);
+				}
+				
+				if(clientHandler.getReplicaCounter() == this.replicate){	
+					requestTracker.put(ch, requestListIndex);
+					decrementCounter();
+					requestListIndex = requestTracker.get(ch);
+					clientHandler.calculate_T_server(); // logging data;
+					clientHandler.server.send(requestList.poll());
+				}
+			}
+			else{
+				System.out.println("Thread name: " + Thread.currentThread().getName());
+				System.out.println("whole: " + "length: " + responses.length);
+				System.out.println("first: " + responses[0]);
+				System.out.println("!!!!!!: " + requestListIndex + " " + i + " " + this.requestList.size());
+			
+			}
+		}
+		requestTracker.put(ch, requestListIndex);
+	}
+	
+	private void decrementCounter(){
+		Iterator<Entry<SocketChannel, Integer>> scIterator = requestTracker.entrySet().iterator();
+		Entry<SocketChannel, Integer> curr_entry;
+		while(scIterator.hasNext()){
+			curr_entry = scIterator.next();
+			requestTracker.put(curr_entry.getKey(), curr_entry.getValue()-1);
+		}
 	}
 	
 	
@@ -209,29 +260,18 @@ public class AsyncClient implements Runnable{
 	        while (true){
 	        	
 	        	if((receivedClientH = this.setQueue.poll()) != null){
-	        		
-	        		receivedClientH.calculate_T_queue(); // logging data
-	        		
-	        		asyncSocketChannelHandler = this.clientSockets.get(receivedClientH.socket);
-	        		if(asyncSocketChannelHandler == null){
-	        			// create a socket channel for primary memcach
-	        			asyncSocketChannelHandler = new AsyncClientSocketChannelHanlder(initiateConnection(this.mcAddress.get(this.primaryIndex)), this.replicate);	
-	        			this.clientSockets.put(receivedClientH.socket, asyncSocketChannelHandler); // put the socket channel to hashmap	        			
-		        		asyncSocketChannelHandler.setRequestData(receivedClientH);
-		        		asyncSocketChannelHandler.keyAttachPrimary(this.selector);
-	        			// check for replication
-	        			if(this.replicate > 1){
-	        				initiateSecondaryConnection(asyncSocketChannelHandler);
+	        		receivedClientH.calculate_T_queue();
+	        		this.primarySocketChannel.keyFor(this.selector).interestOps(SelectionKey.OP_WRITE);
+
+	        		// replicate to rest of the memcached servers
+	        		if(this.replicate > 1){
+	        			for(int i = 1; i<receivedClientH.replicateMcAddress.size(); i++){
+	        				this.secondaryConnections.get(receivedClientH.replicateMcAddress.get(i)).keyFor(this.selector).interestOps(SelectionKey.OP_WRITE);
 	        			}
 	        		}
-	        		else{
-		        		asyncSocketChannelHandler.setRequestData(receivedClientH);
-		        		asyncSocketChannelHandler.setPrimaryKeyWrite(this.selector);
-		        		if(this.replicate > 1){
-		        			asyncSocketChannelHandler.setSecondaryKeyWrite(this.selector);
-		        		}
-	        		}
+					requestList.offer(receivedClientH);
 	        	}       		
+	        	
 	        		
 	            int numChannels = this.selector.selectNow();
 	            if(numChannels == 0) continue;

@@ -1,8 +1,10 @@
 import java.math.BigInteger;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -89,7 +91,7 @@ public class ConsistentHash {
 	  * @param numReplica
 	  * @return List of hash keys for servers 
 	  */
-	 public Collection<String> getWithReplica(String key, int numReplica){
+	 public ArrayList<String> getWithReplica(String key, int numReplica){
 		 if(circle.isEmpty()){
 			 return null;
 		 }
@@ -99,21 +101,32 @@ public class ConsistentHash {
 			 BigInteger number = new BigInteger(1, messageDigest);
 			 
 			 Map<String, String> replicaServers = new LinkedHashMap<String, String>();
-			 
-			 SortedMap<BigInteger, String> tailmap = circle.tailMap(number);
-		     number = tailmap.isEmpty() ? circle.firstKey() : tailmap.firstKey();
-		     String curr_server = circle.get(number);
-		     replicaServers.put(curr_server, curr_server);
-		     for(int i=1; i<numReplica; i++){
-			     while(replicaServers.get(curr_server) != null){
-			    	 tailmap = circle.tailMap(number.add(BigInteger.ONE));
-				     number = tailmap.isEmpty() ? circle.firstKey() : tailmap.firstKey();
-				     curr_server = circle.get(number);
+			 ArrayList<String> servers = new ArrayList<String>();
+	    	 SortedMap<BigInteger, String> tailmap;
+	    	 Iterator<String> tailIterator;
+			 String curr_server;
+
+		     while(numReplica > 0){
+		    	 tailmap = circle.tailMap(number);
+		    	 if(tailmap.isEmpty()){
+		    		 tailmap = circle.tailMap(circle.firstKey());
+		    	 }
+			     tailIterator = tailmap.values().iterator();
+
+			     while(tailIterator.hasNext()){
+			    	 curr_server = tailIterator.next();
+			    	 if(replicaServers.get(curr_server) == null){
+			    		 servers.add(curr_server);
+			    		 replicaServers.put(curr_server, curr_server);
+			    		 numReplica--;
+			    	 }
+			    	 if(numReplica == 0){
+			    		 break;
+			    	 }
 			     }
-//			     System.out.println("inside hashing: " + curr_server);
-			     replicaServers.put(curr_server, curr_server);
+			     number = circle.firstKey();
 		     }
-		     return replicaServers.values();
+		     return servers;
 		 }
 	 }
 

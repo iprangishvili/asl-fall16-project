@@ -51,11 +51,8 @@ public class SyncClient implements Runnable{
 					readBuff.get(buff);
 					
 					// logging data
-					if(!new String(buff).trim().toLowerCase().equals("end")){
-						clientHandler.set_success_flag(true);
-					}
-					else{
-
+					// if get failed
+					if(new String(buff).trim().toLowerCase().equals("end")){
 						clientHandler.set_success_flag(false);
 					}
 					
