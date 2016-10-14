@@ -61,7 +61,9 @@ public class Middleware{
 				new Thread(new SyncClient(tempQueue.getQueue, this.mcAddresses.get(i))).start();
 			}
 			
-			new Thread(new AsyncClient(this.mcAddresses, i, this.numReplication ,tempQueue.setQueue), this.mcAddresses.get(i)).start();
+			AsyncClient temp_async = new AsyncClient(this.mcAddresses, i, this.numReplication ,tempQueue.setQueue);
+			new Thread(temp_async, this.mcAddresses.get(i)).start();
+			tempQueue.setAsync(temp_async);
 			this.delegateToQueue.put(this.mcAddresses.get(i), tempQueue);
 
 		}
@@ -105,6 +107,7 @@ public class Middleware{
 					// set the time of enqueue
 					clientRequestForward.set_time_enqueue(); // logging info
 					this.delegateToQueue.get(selectedServer).setQueue.put(clientRequestForward);
+					this.delegateToQueue.get(selectedServer).getAsync().wakeSelector();
 				}
 				else if(this.numReplication > 1){
 					ArrayList<String> selectedServers = this.consistentHash.getWithReplica(inputStr[1].trim(), this.numReplication);
@@ -113,6 +116,7 @@ public class Middleware{
 					// set the time of enqueue
 					clientRequestForward.set_time_enqueue();
 					this.delegateToQueue.get(selectedServers.get(0)).setQueue.put(clientRequestForward);
+					this.delegateToQueue.get(selectedServers.get(0)).getAsync().wakeSelector();
 				}
 			}
 		}

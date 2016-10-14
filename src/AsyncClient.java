@@ -151,7 +151,10 @@ public class AsyncClient implements Runnable{
 	    byte[] buff = new byte[readBuffer.position()];
 	    readBuffer.flip();
 	    readBuffer.get(buff);
-	    
+	    if(length == 0){
+	    	System.out.println("empty");
+	    }
+//	    System.out.println("string: " + new String(buff));
 	    if(this.replicate == 1){
 	 		handleMultipleResponse(new String(buff).split("\n"));
 	    }
@@ -253,6 +256,10 @@ public class AsyncClient implements Runnable{
 		}
 	}
 	
+	public void wakeSelector(){
+		this.selector.wakeup();
+	}
+	
 	
 	public void run(){
 		try {
@@ -261,18 +268,24 @@ public class AsyncClient implements Runnable{
 	        	if((receivedClientH = this.setQueue.poll()) != null){
 	        		receivedClientH.calculate_T_queue();
 	        		this.primarySocketChannel.keyFor(this.selector).interestOps(SelectionKey.OP_WRITE);
+//	        		this.primarySocketChannel.write(receivedClientH.data);
+//	        		this.primarySocketChannel.keyFor(this.selector).interestOps(SelectionKey.OP_READ);
 
+//	        		receivedClientH.data.rewind();
 	        		// replicate to rest of the memcached servers
 	        		if(this.replicate > 1){
 	        			for(int i = 1; i<receivedClientH.replicateMcAddress.size(); i++){
 	        				this.secondaryConnections.get(receivedClientH.replicateMcAddress.get(i)).keyFor(this.selector).interestOps(SelectionKey.OP_WRITE);
+//	        				this.secondaryConnections.get(receivedClientH.replicateMcAddress.get(i)).write(receivedClientH.data);
+//	        				this.secondaryConnections.get(receivedClientH.replicateMcAddress.get(i)).keyFor(this.selector).interestOps(SelectionKey.OP_READ);
+//	        				receivedClientH.data.rewind();
 	        			}
 	        		}
 					requestList.offer(receivedClientH);
 	        	}       		
 	        	
 	        		
-	            int numChannels = this.selector.selectNow();
+	            int numChannels = this.selector.select();
 	            if(numChannels == 0) continue;
 	            Iterator<SelectionKey> keys = this.selector.selectedKeys().iterator();
 
