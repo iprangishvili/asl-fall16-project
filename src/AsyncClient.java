@@ -104,6 +104,7 @@ public class AsyncClient implements Runnable{
 		// this will raise an IOException.
 		try {
 			socketChannel.finishConnect();
+			key.interestOps(0);
 		} catch (IOException e) {
 
 			// Cancel the channel's registration with our selector
@@ -249,8 +250,8 @@ public class AsyncClient implements Runnable{
 				}
 				
 				if(clientHandler.getReplicaCounter() == this.replicate){	
-					requestTracker.put(ch, requestListIndex);
-					decrementCounter();
+//					requestTracker.put(ch, requestListIndex);
+					decrementCounter(ch);
 					requestListIndex = requestTracker.get(ch);
 					clientHandler.calculate_T_server(); // logging data;
 					clientHandler.server.send(requestList.poll());
@@ -259,12 +260,14 @@ public class AsyncClient implements Runnable{
 		requestTracker.put(ch, requestListIndex);
 	}
 	
-	private void decrementCounter(){
+	private void decrementCounter(SocketChannel ch){
 		Iterator<Entry<SocketChannel, Integer>> scIterator = requestTracker.entrySet().iterator();
 		Entry<SocketChannel, Integer> curr_entry;
 		while(scIterator.hasNext()){
 			curr_entry = scIterator.next();
-			requestTracker.put(curr_entry.getKey(), curr_entry.getValue()-1);
+			if(!ch.equals(curr_entry.getKey()) && curr_entry.getValue() != 0){
+				requestTracker.put(curr_entry.getKey(), curr_entry.getValue()-1);
+			}
 		}
 	}
 	
