@@ -1,3 +1,4 @@
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
@@ -29,7 +30,10 @@ public class AsyncClient implements Runnable{
 	
 	// force socket channel to read memcached response in parts;
 	private ByteBuffer readBuffer = ByteBuffer.allocate(1024); // !!!  important 
+	private ByteArrayOutputStream bout = new ByteArrayOutputStream();
+
 	private RequestData receivedClientH = null;
+	
 		
 	/**
 	 * 
@@ -131,7 +135,8 @@ public class AsyncClient implements Runnable{
 	 */
 	private void read (SelectionKey key) throws IOException {
 	    SocketChannel channel = (SocketChannel) key.channel();
-	    readBuffer.clear();		
+	    readBuffer.clear();	
+	    bout.reset();
 	    int length;
 	    try{
 	    	length = channel.read(readBuffer);
@@ -148,18 +153,26 @@ public class AsyncClient implements Runnable{
 	        return;
 	    }	    
 	    // convert ByteBuffer to byte array
-	    byte[] buff = new byte[readBuffer.position()];
+//	    byte[] buff = new byte[readBuffer.position()];
+//	    readBuffer.flip();
+//	    readBuffer.get(buff);
 	    readBuffer.flip();
-	    readBuffer.get(buff);
+	    byte curr_char;
+	    for(int i=0; i<length; i++){
+	    	curr_char = readBuffer.get(i);
+	    	bout.write(curr_char);
+	    }	  
+	    
 	    if(length == 0){
 	    	System.out.println("empty");
 	    }
-//	    System.out.println("string: " + new String(buff));
+//	    System.out.println("string: " + bout.toString());
+	    
 	    if(this.replicate == 1){
-	 		handleMultipleResponse(new String(buff).split("\n"));
+	 		handleMultipleResponse(bout.toString().split("\n"));
 	    }
 	    else if(this.replicate > 1){
-	    	handleMultipleResponseWithReplica(new String(buff).split("\n"), channel);
+	    	handleMultipleResponseWithReplica(bout.toString().split("\n"), channel);
 	    }
 //	    key.interestOps(0);
 	}
@@ -267,18 +280,20 @@ public class AsyncClient implements Runnable{
 	        	
 	        	if((receivedClientH = this.setQueue.poll()) != null){
 	        		receivedClientH.calculate_T_queue();
-	        		this.primarySocketChannel.keyFor(this.selector).interestOps(SelectionKey.OP_WRITE);
-//	        		this.primarySocketChannel.write(receivedClientH.data);
-//	        		this.primarySocketChannel.keyFor(this.selector).interestOps(SelectionKey.OP_READ);
+//	        		this.primarySocketChannel.keyFor(this.selector).interestOps(SelectionKey.OP_WRITE);
+	        		
+	        		receivedClientH.set_time_server_send(); // logging data TODO: adjust checking for the case of replication for logging this info
+	        		this.primarySocketChannel.write(receivedClientH.data);
+	        		this.primarySocketChannel.keyFor(this.selector).interestOps(SelectionKey.OP_READ);
 
-//	        		receivedClientH.data.rewind();
+	        		receivedClientH.data.rewind();
 	        		// replicate to rest of the memcached servers
 	        		if(this.replicate > 1){
 	        			for(int i = 1; i<receivedClientH.replicateMcAddress.size(); i++){
-	        				this.secondaryConnections.get(receivedClientH.replicateMcAddress.get(i)).keyFor(this.selector).interestOps(SelectionKey.OP_WRITE);
-//	        				this.secondaryConnections.get(receivedClientH.replicateMcAddress.get(i)).write(receivedClientH.data);
-//	        				this.secondaryConnections.get(receivedClientH.replicateMcAddress.get(i)).keyFor(this.selector).interestOps(SelectionKey.OP_READ);
-//	        				receivedClientH.data.rewind();
+//	        				this.secondaryConnections.get(receivedClientH.replicateMcAddress.get(i)).keyFor(this.selector).interestOps(SelectionKey.OP_WRITE);
+	        				this.secondaryConnections.get(receivedClientH.replicateMcAddress.get(i)).write(receivedClientH.data);
+	        				this.secondaryConnections.get(receivedClientH.replicateMcAddress.get(i)).keyFor(this.selector).interestOps(SelectionKey.OP_READ);
+	        				receivedClientH.data.rewind();
 	        			}
 	        		}
 					requestList.offer(receivedClientH);
@@ -298,9 +313,9 @@ public class AsyncClient implements Runnable{
 	                if (key.isConnectable()){
 	                    this.finishConnect(key);
 	                }   
-	                else if (key.isWritable()){
-	                    this.write(key);
-	                }
+//	                else if (key.isWritable()){
+//	                    this.write(key);
+//	                }
 	                else if (key.isReadable()){
 	                    this.read(key);
 	                }

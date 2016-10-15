@@ -1,3 +1,4 @@
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
@@ -28,6 +29,8 @@ public class Server extends Thread{
   private String hostAddress;
   
   private ByteBuffer echoBuffer = ByteBuffer.allocate(2024);
+  private ByteArrayOutputStream bout = new ByteArrayOutputStream();
+
   private byte[] buff;
   
   private int setCommandCounter = 0;
@@ -104,6 +107,7 @@ public class Server extends Thread{
   private void read(SelectionKey currentKey) throws Exception{
 	  
 	  echoBuffer.clear();
+	  bout.reset();
 	  // Read the data
 	  SocketChannel sc = (SocketChannel) currentKey.channel();
       int code = 0;
@@ -125,14 +129,21 @@ public class Server extends Thread{
     	  currentKey.cancel();
     	  return;
       }
-      buff = new byte[echoBuffer.position()];
-      echoBuffer.flip();
-      echoBuffer.get(buff, 0, code);
+//      buff = new byte[echoBuffer.position()];
+//      echoBuffer.flip();
+//      echoBuffer.get(buff, 0, code);
+      
+	    echoBuffer.flip();
+	    byte curr_char;
+	    for(int i=0; i<code; i++){
+	      curr_char = echoBuffer.get(i);
+	      bout.write(curr_char);
+	    }	
 //      System.out.println("read bytes: " + code + " bufferByte: " + ByteBuffer.wrap(buff) + " " + new String(buff));
 
 //	  System.out.println("out: " + buff.length + " " + buff.toString());
 //	  System.out.println(ByteBuffer.wrap(buff));
-	  RequestData forward_request = new RequestData(this, sc, ByteBuffer.wrap(buff));
+	  RequestData forward_request = new RequestData(this, sc, ByteBuffer.wrap(bout.toByteArray()));
 	  forward_request.set_request_receive_time();
 	  this.middleware.processRequest(forward_request);
 	  currentKey.interestOps(0);
