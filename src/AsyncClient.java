@@ -163,10 +163,9 @@ public class AsyncClient implements Runnable{
 	    	bout.write(curr_char);
 	    }	  
 	    
-	    if(length == 0){
-	    	System.out.println("empty");
-	    }
-//	    System.out.println("string: " + bout.toString());
+//	    if(length == 0){
+//	    	System.out.println("empty");
+//	    }
 	    
 	    if(this.replicate == 1){
 	 		handleMultipleResponse(bout.toString().split("\n"));
