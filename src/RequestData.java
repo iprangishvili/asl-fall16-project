@@ -88,7 +88,7 @@ public class RequestData {
 	 * back the response; (millisecond)
 	 */
 	public void calculate_T_mw(){
-		this.T_mw = (System.nanoTime() - this.time_received_request);
+		this.T_mw = (System.nanoTime() - this.time_received_request)/1000;
 	}
 	
 	/**
@@ -97,7 +97,7 @@ public class RequestData {
 	 * (milliseconds)
 	 */
 	public void calculate_T_queue(){
-		this.T_queue = (System.nanoTime() - this.time_of_enqueue);
+		this.T_queue = (System.nanoTime() - this.time_of_enqueue)/1000;
 	}
 	
 	/**
@@ -107,7 +107,7 @@ public class RequestData {
 	 *  (milliseconds)
 	 */
 	public void calculate_T_server(){
-		this.T_server = (System.nanoTime() - this.time_request_server_send);
+		this.T_server = (System.nanoTime() - this.time_request_server_send)/1000;
 	}
 	
 	/**

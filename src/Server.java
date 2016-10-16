@@ -30,8 +30,6 @@ public class Server extends Thread{
   
   private ByteBuffer echoBuffer = ByteBuffer.allocate(2024);
   private ByteArrayOutputStream bout = new ByteArrayOutputStream();
-
-  private byte[] buff;
   
   private int setCommandCounter = 0;
   private int getCommandCounter = 0;
