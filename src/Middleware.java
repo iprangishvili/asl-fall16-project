@@ -9,8 +9,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public class Middleware{
 		
 	// locally specified variables
-	private int setQueueSize = 1000; // queue size for set
-	private int getQueueSize = 1000; // queue size for get
+	private int setQueueSize = 10000; // queue size for set
+	private int getQueueSize = 10000; // queue size for get
 	private int numVirtualNodes = 200; // number of virtual nodes for servers (uniform key space distribution)
 
 	// user specified variables at runtime

@@ -158,7 +158,12 @@ public class ConsistentHash {
 //		 }
 //	 }
 	 
-	 
+	 /**
+	  * get a list of hash keys based on the number of replications
+	  * @param key
+	  * @param numReplica
+	  * @return List of hash keys for servers 
+	  */
 	 public ArrayList<String> getWithReplica(String key, int numReplica){
 		 if (circle.isEmpty()) {
 		     return null;
