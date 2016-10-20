@@ -35,7 +35,7 @@ public class Server extends Thread{
   private int setCommandCounter = 0;
   private int getCommandCounter = 0;
   
-  private boolean enable_logging = true;
+  private boolean enable_logging = false;
 
   
   public Server(String myIp, int myPort, List<String> mcAddresses,int numThreadsPTP,int writeToCount) throws IOException{
