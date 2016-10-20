@@ -25,6 +25,11 @@ public class SyncClient implements Runnable{
 		initConnection();		
 	}
 	
+	/**
+	 * initiate connection to memcahed server
+	 * blocking mode - synchronous
+	 * @throws IOException
+	 */
 	private void initConnection() throws IOException{
 		this.socketChannel = SocketChannel.open();
 		this.socketChannel.configureBlocking(true);
@@ -36,27 +41,36 @@ public class SyncClient implements Runnable{
 		try{
 		
 			while(true){
+				// take from the associated GET queue
+				// blocks the thread if the queue is empty 
 				clientHandler = this.getQueue.take();
+				
+				// calculate time requets spend in queue
 				clientHandler.calculate_T_queue(); // logging data
+				
 				readBuff.clear();
+				// set time request was sent to memcached server
 				clientHandler.set_time_server_send(); // logging data
+				
 				// write to memcached server
 			    this.socketChannel.write(clientHandler.data);
 				// read from memcached server
 				int bytesRead = this.socketChannel.read(readBuff);
 				if(bytesRead > 0){
+					// calculate time request spent time in server
 					clientHandler.calculate_T_server(); // logging data
 					buff = new byte[readBuff.position()];
 					readBuff.flip();
 					readBuff.get(buff);
 					
 					// logging data
-					// if get failed
+					// set success flag to false if failed
 					if(new String(buff).trim().toLowerCase().equals("end")){
 						clientHandler.set_success_flag(false);
 					}
-					
+					// set the response in RequestData instance
 					clientHandler.setResponse(ByteBuffer.wrap(buff));
+					// send back to memaslap using Server class method
 					clientHandler.server.send(clientHandler);				
 				}
 			}

@@ -155,11 +155,18 @@ public class RequestData {
 	public boolean get_success_flag(){
 		return this.success_flag;
 	}
-	
+	/**
+	 * increment a replication count
+	 * @throws IOException
+	 */
 	public void incrementReplicaCounter() throws IOException{
 		this.replicationCounter++;
 	}
 	
+	/**
+	 * get current replication count
+	 * @return
+	 */
 	public int getReplicaCounter(){
 		return this.replicationCounter;
 	}

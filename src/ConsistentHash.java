@@ -51,9 +51,8 @@ public class ConsistentHash {
 	    	 curr_server = tailIterator.next();
 	    	 serverIPs.add(new String(curr_server));
 	     }	 
-//	     System.out.println("Size of replicas: " + serverIPs.size());
+	     
 //		add virtual nodes
-//		add servers to ring without virtual nodes
 		   for (String node : nodes) {
 		     addReplica(node);
 		   }
@@ -66,22 +65,27 @@ public class ConsistentHash {
 	 }
 	
 	 /**
-	  * Create a hash for a specific key
+	  * add a specific server IP:PORT hash to the ring
+	  * with specified number of virtual nodes
 	  * @param node - Key to hash
 	  */
 	 private void addReplica(String node) {
 	   for(int i=1; i<numberOfReplicas; i++){
 		   byte[] messageDigest = hashFunction.digest((node + "#" + i).getBytes());
 		   BigInteger number = new BigInteger(1, messageDigest);
-		   System.out.println("string: " + node + " hash: " + number);
+//		   System.out.println("string: " + node + " hash: " + number);
 		   circle.put(number, node);   
 	   }
 	 }
 	 
+	 /**
+	  * add a specific server IP:PORT hash to the ring
+	  * @param node
+	  */
 	 private void add(String node){
 		 byte[] messageDigest = hashFunction.digest((node).getBytes());
 		 BigInteger number = new BigInteger(1, messageDigest);
-		 System.out.println("string: " + node + " hash: " + number);
+//		 System.out.println("string: " + node + " hash: " + number);
 		 circle.put(number, node);
 	 }
 	
@@ -114,7 +118,8 @@ public class ConsistentHash {
 	 }
 	 
 	 /**
-	  * get a list of hash keys based on the number of replications
+	  * get a list of values of hash keys on the circle closest to the
+	  * specified input string (length of the output list is number of replication)
 	  * @param key
 	  * @param numReplica
 	  * @return List of hash keys for servers 
@@ -159,7 +164,8 @@ public class ConsistentHash {
 //	 }
 	 
 	 /**
-	  * get a list of hash keys based on the number of replications
+	  * get a list of values of hash keys on the circle closest to the
+	  * specified input string (length of the output list is number of replication)
 	  * @param key
 	  * @param numReplica
 	  * @return List of hash keys for servers 

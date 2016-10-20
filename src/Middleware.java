@@ -22,7 +22,6 @@ public class Middleware{
 	private ConsistentHash consistentHash; 
 
 	/**
-	 * TODO: add parameters
 	 * @throws IOException 
 	 * @throws NoSuchAlgorithmException 
 	 */
@@ -32,6 +31,8 @@ public class Middleware{
 		this.numThreadsPTP = numThreadsPTP;
 		this.numReplication = writeToCount;
 		
+		// create an instance of consistent hash class
+		// adds hash values of the memcached servers on the circle
 		this.consistentHash = new ConsistentHash(this.numVirtualNodes, this.mcAddresses);
 		
 		// create an internal structure of middleware
@@ -40,10 +41,12 @@ public class Middleware{
 	}
 	
 	/**
-	 * initialize queue for set and get for each server; 
-	 * initialize thread pool for get
-	 * start thread for asynchronious client
-	 * save the queue in hashMap based on the server IP:Port key
+	 * initialize ManageQueue instance holding set/get queue and asynchronous client
+	 * instance, for each memcached server; 
+	 * For each memcached server create a thread pool of synchronous clients
+	 * with specified number of threads (numThreadsPTP)
+	 * start a thread of asynchronous client instance for each memcached server
+	 * put the ManageQueue instance in hashMap based on the server IP:Port key
 	 * @throws IOException 
 	 * 
 	 */
@@ -71,7 +74,7 @@ public class Middleware{
 	
 	/**
 	 * process request from memaslap. 
-	 * parse the request data: based on get/set command.
+	 * parse the request data: based on get/set/delete command.
 	 * hash the key, find the relevant memcached server
 	 * and add the request to relevant queue based on 
 	 * server identity and command (set/get) 
@@ -81,32 +84,40 @@ public class Middleware{
 	 */
 	public void processRequest(RequestData clientRequestForward) throws Exception{
 
-		// initial parsing for set/get
 		byte[] input = clientRequestForward.data.array();
 		String[] inputStr = new String(input, "UTF-8").split(" ");
 		
 		if(inputStr.length >= 2){
-			
-			// add request to relevant queue
+		
+			// parsing for set/get/delete
 			if(inputStr[0].trim().equals("get")){
-				// get the memcached server address to which the request key belongs
+				
+				// get the memcached server address which will process the request
 				String selectedServer = this.consistentHash.get(inputStr[1].trim());
 				
-				// set the time of enqueue
+				// set the type of operation and time of enqueue
 				clientRequestForward.requestType = "GET"; // logging info
 				clientRequestForward.set_time_enqueue(); // logging info
+				
+				// push the request to the GET queue of the selected memcached server
 				this.delegateToQueue.get(selectedServer).getQueue.put(clientRequestForward);
 			}
 			else if(inputStr[0].trim().equals("set") || inputStr[0].trim().equals("delete")){
+				
+				// set the type of the operation (logging info)
 				clientRequestForward.requestType = inputStr[0].trim().toUpperCase(); // logging info
+				
 				// check for replication
 				if(this.numReplication == 1){
 					
+					// get the memcached server address which will process the request
 					String selectedServer = this.consistentHash.get(inputStr[1].trim());
 					
 					// set the time of enqueue
 					clientRequestForward.set_time_enqueue(); // logging info
+					// push the request to the SET queue of the selected memcached server 
 					this.delegateToQueue.get(selectedServer).setQueue.put(clientRequestForward);
+					// wake up the selector of the asynchronous client to process the new request
 					this.delegateToQueue.get(selectedServer).getAsync().wakeSelector();
 				}
 				else if(this.numReplication > 1){
@@ -114,8 +125,11 @@ public class Middleware{
 					// set replication addresses
 					clientRequestForward.setReplicaAddress(selectedServers);
 					// set the time of enqueue
-					clientRequestForward.set_time_enqueue();
+					clientRequestForward.set_time_enqueue(); // logging info
+					// push the request to the SET queue of the selected primary memcached server
+					// with information on replication server addresses
 					this.delegateToQueue.get(selectedServers.get(0)).setQueue.put(clientRequestForward);
+					// wake up the selector of the asynchronous client to process the new request
 					this.delegateToQueue.get(selectedServers.get(0)).getAsync().wakeSelector();
 				}
 			}

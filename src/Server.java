@@ -31,10 +31,11 @@ public class Server extends Thread{
   private ByteBuffer echoBuffer = ByteBuffer.allocate(2024);
   private ByteArrayOutputStream bout = new ByteArrayOutputStream();
   
+  // set and get command counters
   private int setCommandCounter = 0;
   private int getCommandCounter = 0;
   
-  private boolean enable_logging = false;
+  private boolean enable_logging = true;
 
   
   public Server(String myIp, int myPort, List<String> mcAddresses,int numThreadsPTP,int writeToCount) throws IOException{
@@ -121,8 +122,7 @@ public class Server extends Thread{
       }
       // on socket disconnect
       if (code == -1) {
-    	  System.out.println("shutting down socket");
-    	  // Remote entity shut the socket down
+//    	  System.out.println("shutting down socket");
     	  sc.close();
     	  currentKey.cancel();
     	  return;
@@ -202,8 +202,7 @@ public class Server extends Thread{
 	 * @throws IOException
 	 */
   private void setLogger() throws SecurityException, IOException{
-	Date date = new Date(); 
-	Handler log_fileHandler = new FileHandler("logs/Log_data:" + date.toString() + ".csv");
+	Handler log_fileHandler = new FileHandler("log_file.csv");
 	LOGGER.setLevel(Level.INFO);
 	log_fileHandler.setFormatter(new MyCustomFormater());
 	LOGGER.addHandler(log_fileHandler);
@@ -238,7 +237,7 @@ public class Server extends Thread{
 	  while(true){
 		  try{
 			  
-			// Process any pending changes
+			// Process socket channel selection key change operations
 				synchronized (this.pendingChanges) {
 					Iterator<SocketChangeRequestInfo> changes = this.pendingChanges.iterator();
 					while (changes.hasNext()) {
@@ -278,7 +277,6 @@ public class Server extends Thread{
 		  catch(Exception e){
 			  // if one of the clients (memaslap) disconnects badly;
 			  // clear all change data
-	    	  // not handling it properly yet; Find out if it needs to be handled at all;
 	    	  this.pendingChanges.clear();
 	    	  this.pendingData.clear();
 			  e.printStackTrace();
